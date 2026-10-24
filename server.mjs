@@ -754,6 +754,33 @@ async function serveStatic(req, res, pathname) {
   } catch { res.writeHead(404); res.end('Not found'); }
 }
 
+let applicationHandler;
+let applicationStartupError;
+let applicationInitialization;
+
+const server = http.createServer(async (req, res) => {
+  try {
+    await applicationInitialization;
+    if (applicationStartupError) {
+      send(res, 500, { error: 'Não foi possível inicializar o servidor.' });
+      return;
+    }
+    await applicationHandler(req, res);
+  } catch (error) {
+    console.error('Falha ao processar requisição:', error);
+    if (!res.headersSent) send(res, 500, { error: 'Erro interno.' });
+    else res.destroy();
+  }
+});
+server.headersTimeout = 15_000;
+server.requestTimeout = 30_000;
+server.keepAliveTimeout = 5_000;
+server.maxRequestsPerSocket = 1000;
+const port = Number(process.env.PORT || (process.env.VERCEL ? 3000 : 4174));
+const host = process.env.HOST || (process.env.VERCEL || process.env.RENDER === 'true' ? '0.0.0.0' : '127.0.0.1');
+if (process.env.VERCEL) server.listen(port);
+else server.listen(port, host, () => console.log(`Minhas Finanças em http://${host}:${port}`));
+
 async function main() {
   await loadDotEnv();
   if (process.env.NODE_ENV === 'production') {
@@ -765,7 +792,7 @@ async function main() {
   }
   if (!process.env.DATABASE_URL) await mkdir(DATA_DIR, { recursive: true });
   await initializeDatabase();
-  const server = http.createServer(async (req, res) => {
+  applicationHandler = async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     const pathname = url.pathname;
     try {
@@ -1160,15 +1187,11 @@ async function main() {
       if (!res.headersSent) send(res, status, { error: status === 400 ? 'Requisição inválida.' : 'Erro interno.' });
       else res.destroy();
     }
-  });
-  server.headersTimeout = 15_000;
-  server.requestTimeout = 30_000;
-  server.keepAliveTimeout = 5_000;
-  server.maxRequestsPerSocket = 1000;
-  const port = Number(process.env.PORT || 4174);
-  const host = process.env.HOST || (process.env.VERCEL || process.env.RENDER === 'true' ? '0.0.0.0' : '127.0.0.1');
-  server.listen(port, host, () => console.log(`Minhas Finanças em http://${host}:${port}`));
+  };
 }
 
-main().catch(error => { console.error('Falha ao iniciar servidor:', error); process.exitCode = 1; });
+applicationInitialization = main().catch(error => {
+  applicationStartupError = error;
+  console.error('Falha ao iniciar servidor:', error);
+});
 
