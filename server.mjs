@@ -778,8 +778,7 @@ server.keepAliveTimeout = 5_000;
 server.maxRequestsPerSocket = 1000;
 const port = Number(process.env.PORT || (process.env.VERCEL ? 3000 : 4174));
 const host = process.env.HOST || (process.env.VERCEL || process.env.RENDER === 'true' ? '0.0.0.0' : '127.0.0.1');
-if (process.env.VERCEL) server.listen(port);
-else server.listen(port, host, () => console.log(`Minhas Finanças em http://${host}:${port}`));
+if (!process.env.VERCEL) server.listen(port, host, () => console.log(`Minhas Finanças em http://${host}:${port}`));
 
 async function main() {
   await loadDotEnv();
@@ -1194,4 +1193,6 @@ applicationInitialization = main().catch(error => {
   applicationStartupError = error;
   console.error('Falha ao iniciar servidor:', error);
 });
+
+export default server;
 
