@@ -1,6 +1,9 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "fluid": true,
+  "functions": {
+    "api/**/*.ts": { "includeFiles": "dashboard.html" }
+  },
   "rewrites": [
     { "source": "/", "destination": "/api/home?path=/" },
     { "source": "/login", "destination": "/api/home?path=/login" },
