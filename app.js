@@ -376,23 +376,42 @@
   function removeCard(id){const card=cards.find(c=>String(c.id)===String(id));if(!card||!confirm(`Remover o cartão “${card.name}”? As transações associadas continuarão salvas sem vínculo ao cartão.`))return;cards=cards.filter(c=>String(c.id)!==String(id));transactions=transactions.map(t=>String(t.cardId)===String(id)?{...t,cardId:null}:t);saveCards();saveTransactions();render();showToast('Cartão removido.');}
 
   function parseCSV(text){
-    const first=(text.split(/\r?\n/).find(line=>line.trim())||'');const delimiter=(first.match(/;/g)||[]).length>(first.match(/,/g)||[]).length?';':',';
-    const rows=[];let row=[],cell='',quoted=false;
-    for(let i=0;i<text.length;i++){const c=text[i];if(c==='"'&&quoted&&text[i+1]==='"'){cell+='"';i++;}else if(c==='"'){quoted=!quoted;}else if(c===delimiter&&!quoted){row.push(cell);cell='';}else if((c==='\n'||c==='\r')&&!quoted){if(c==='\r'&&text[i+1]==='\n')i++;row.push(cell);if(row.some(x=>x.trim()))rows.push(row);row=[];cell='';}else cell+=c;}
-    row.push(cell);if(row.some(x=>x.trim()))rows.push(row);if(rows.length<2)return [];
-    const headers=rows[0].map(x=>x.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''));
-    const find=(keys)=>headers.findIndex(h=>keys.some(k=>h.includes(k)));
-    const di=find(['data','date']),diDesc=find(['descricao','historico','lancamento','memo']),diAmount=find(['valor','amount']),diType=find(['tipo','type']),diCategory=find(['categoria']);
-    if(di<0||diAmount<0)return [];
-    return rows.slice(1).map(cols=>{let date=(cols[di]||'').trim();if(/^\d{2}\/\d{2}\/\d{4}$/.test(date)){const[d,m,y]=date.split('/');date=`${y}-${m}-${d}`;}else if(/^\d{4}-\d{2}-\d{2}/.test(date))date=date.slice(0,10);else return null;
-      let raw=(cols[diAmount]||'').trim().replace(/R\$|\s/g,'');if(raw.includes(',')&&raw.lastIndexOf(',')>raw.lastIndexOf('.'))raw=raw.replace(/\./g,'').replace(',','.');else raw=raw.replace(/,/g,'');const amount=Math.abs(Number(raw));if(!Number.isFinite(amount)||amount===0)return null;
-      const markedType=diType>=0?(cols[diType]||'').toLowerCase():'';const negative=(cols[diAmount]||'').trim().startsWith('-');const type=/entrada|credito|credit|receita|deposito/.test(markedType)?'income':/saida|debito|debit|despesa/.test(markedType)?'expense':negative?'expense':'income';
-      return{id:`import-${Date.now()}-${Math.random()}`,date,description:(diDesc>=0&&cols[diDesc].trim())||'Transação importada',category:(diCategory>=0&&cols[diCategory].trim())||'Importado',amount,type,createdAt:Date.now()};}).filter(Boolean);
+    text=String(text||'').replace(/^\uFEFF/,'').replace(/\u0000/g,'');
+    const normalize=value=>String(value||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[():]/g,' ').replace(/\s+/g,' ').trim();
+    const parseRows=delimiter=>{const rows=[];let row=[],cell='',quoted=false;for(let i=0;i<text.length;i++){const c=text[i];if(c==='"'&&quoted&&text[i+1]==='"'){cell+='"';i++;}else if(c==='"'){quoted=!quoted;}else if(c===delimiter&&!quoted){row.push(cell);cell='';}else if((c==='\n'||c==='\r')&&!quoted){if(c==='\r'&&text[i+1]==='\n')i++;row.push(cell);if(row.some(x=>x.trim()))rows.push(row);row=[];cell='';}else cell+=c;}row.push(cell);if(row.some(x=>x.trim()))rows.push(row);return rows;};
+    const candidates=[';',',','\t'].map(delimiter=>({delimiter,rows:parseRows(delimiter)})).sort((a,b)=>Math.max(...b.rows.slice(0,30).map(row=>row.length))-Math.max(...a.rows.slice(0,30).map(row=>row.length)));
+    let selected=null;
+    for(const candidate of candidates){
+      const rows=candidate.rows;
+      const headerIndex=rows.findIndex(row=>{const headers=row.map(normalize);const hasDate=headers.some(h=>h==='data'||h.startsWith('data ')||h==='date'||h.startsWith('dt '));const hasValue=headers.some(h=>/^(amount|quantia|valor)( |$)/.test(h)&&!h.includes('saldo')||/(credito|debito|entrada|saida|deposito|retirada)/.test(h));return hasDate&&hasValue;});
+      if(headerIndex>=0){selected={...candidate,headerIndex,headers:rows[headerIndex].map(normalize)};break;}
+    }
+    if(!selected)throw new Error('O CSV não foi reconhecido. Procure cabeçalhos Data e Valor, ou Data, Crédito e Débito.');
+    const {rows,headerIndex,headers}=selected;
+    const find=(keys)=>headers.findIndex(h=>keys.some(k=>h===k||h.startsWith(k+' ')||h.includes(k)));
+    const dateIndex=find(['data','date','dt']);let descIndex=headers.findIndex((h,index)=>index!==dateIndex&&/(descricao|historico|memo|favorecido|beneficiario|detalhe|lancamento)/.test(h));const categoryIndex=find(['categoria']),typeIndex=find(['tipo','natureza']);
+    let amountIndex=headers.findIndex(h=>/^(amount|quantia|valor)( |$)/.test(h)&&!/(saldo|credito|debito)/.test(h));
+    let creditIndex=headers.findIndex(h=>/(credito|entrada|deposito)/.test(h)&&!h.includes('saldo'));
+    let debitIndex=headers.findIndex(h=>/(debito|saida|retirada)/.test(h)&&!h.includes('saldo'));
+    if(amountIndex<0&&creditIndex<0&&debitIndex<0)throw new Error('Não encontrei coluna de valor, crédito ou débito no CSV.');
+    const parseAmount=value=>{let raw=String(value||'').trim().replace(/[\u00a0\s]/g,'');if(!raw||/^[-–—]+$/.test(raw))return 0;const negative=/^-|\(.*\)|-$/.test(raw);raw=raw.replace(/R\$/gi,'').replace(/[()]/g,'').replace(/[^\d,.-]/g,'');if(raw.includes(',')&&raw.lastIndexOf(',')>raw.lastIndexOf('.'))raw=raw.replace(/\./g,'').replace(',','.');else raw=raw.replace(/,/g,'');const valueNumber=Math.abs(Number(raw));return Number.isFinite(valueNumber)?(negative?-valueNumber:valueNumber):0;};
+    const parseDate=value=>{let date=String(value||'').trim();let match=date.match(/^(\d{1,2})[/.](\d{1,2})[/.](\d{4}|\d{2})/);if(match){let year=Number(match[3]);if(year<100)year+=year<70?2000:1900;const day=String(match[1]).padStart(2,'0'),month=String(match[2]).padStart(2,'0');date=`${year}-${month}-${day}`;}else{match=date.match(/^(\d{4})-(\d{2})-(\d{2})/);if(match)date=`${match[1]}-${match[2]}-${match[3]}`;}if(!/^\d{4}-\d{2}-\d{2}$/.test(date))return '';const [year,month,day]=date.split('-').map(Number);const parsed=new Date(Date.UTC(year,month-1,day));return parsed.getUTCFullYear()===year&&parsed.getUTCMonth()===month-1&&parsed.getUTCDate()===day?date:'';};
+    const output=[];
+    for(const cols of rows.slice(headerIndex+1)){
+      const date=parseDate(cols[dateIndex]);if(!date)continue;
+      let signedAmount=0,type='';
+      if(amountIndex>=0){signedAmount=parseAmount(cols[amountIndex]);const markedType=normalize(cols[typeIndex]||'');type=/entrada|credito|credit|receita|deposito/.test(markedType)?'income':/saida|debito|debit|despesa|pagamento|retirada/.test(markedType)?'expense':'';}
+      else{const credit=parseAmount(cols[creditIndex]),debit=parseAmount(cols[debitIndex]);if(credit!==0){signedAmount=Math.abs(credit);type='income';}else if(debit!==0){signedAmount=-Math.abs(debit);type='expense';}}
+      if(!signedAmount)continue;
+      type=type||(signedAmount<0?'expense':'income');
+      const description=String(cols[descIndex]||'').trim()||'Transação importada';
+      output.push({id:`import-${Date.now()}-${Math.random()}`,date,description,category:String(cols[categoryIndex]||'').trim()||'Importado',amount:Math.abs(signedAmount),type,createdAt:Date.now()});
+    }
+    return output;
   }
   function parseOFX(text){const transactionsFound=[];const blocks=text.split(/<STMTTRN>/i).slice(1);for(const block of blocks){const get=(tag)=>((block.match(new RegExp(`<${tag}>([^<\\r\\n]+)`, 'i'))||[])[1]||'').trim();let date=get('DTPOSTED').slice(0,8);if(!/^\d{8}$/.test(date))continue;date=`${date.slice(0,4)}-${date.slice(4,6)}-${date.slice(6,8)}`;let raw=get('TRNAMT').replace(',','.');const signed=Number(raw);if(!Number.isFinite(signed)||signed===0)continue;transactionsFound.push({id:`ofx-${Date.now()}-${Math.random()}`,date,description:get('MEMO')||get('NAME')||'Transação importada',category:'Importado',amount:Math.abs(signed),type:signed<0?'expense':'income',createdAt:Date.now()});}return transactionsFound;}
-  $('#statementFile').addEventListener('change',async(event)=>{const file=event.target.files?.[0];if(!file)return;try{const text=await file.text();const parsed=/\.ofx$/i.test(file.name)||/<OFX>/i.test(text)?parseOFX(text):parseCSV(text);if(!parsed.length){showToast('Não encontrei transações. Confira o formato do arquivo.');return;}transactions.push(...parsed);saveTransactions();render();showToast(`${parsed.length} transações importadas.`);}catch{showToast('Não foi possível ler esse arquivo.');}finally{event.target.value='';}});
+  $('#statementFile').addEventListener('change',async(event)=>{const file=event.target.files?.[0];if(!file)return;try{const bytes=new Uint8Array(await file.arrayBuffer());let text;if(bytes[0]===0xff&&bytes[1]===0xfe)text=new TextDecoder('utf-16le').decode(bytes.slice(2));else if(bytes[0]===0xfe&&bytes[1]===0xff)text=new TextDecoder('utf-16be').decode(bytes.slice(2));else{text=new TextDecoder('utf-8').decode(bytes);if(text.includes('\uFFFD'))text=new TextDecoder('windows-1252').decode(bytes);}const parsed=/\.ofx$/i.test(file.name)||/<OFX>/i.test(text)?parseOFX(text):parseCSV(text);if(!parsed.length){showToast('O arquivo foi lido, mas não encontrei movimentações com data e valor preenchidos.');return;}transactions.push(...parsed);saveTransactions();render();showToast(`${parsed.length} transações importadas.`);}catch(error){showToast(error.message||'Não foi possível ler esse arquivo.');}finally{event.target.value='';}});
   $('#clearData').addEventListener('click',()=>{if(!confirm('Apagar transações, cartões, custos fixos, investimentos e renda mensal salvos neste navegador?'))return;transactions=[];cards=[];fixedCosts=[];investments=[];monthlyIncome=0;budget=0;localStorage.removeItem(TX_KEY);localStorage.removeItem(CARD_KEY);localStorage.removeItem(FIXED_KEY);localStorage.removeItem(INVESTMENT_KEY);localStorage.removeItem(INCOME_KEY);$('#monthlyIncome').value='';render();showToast('Dados apagados.');});
   render();
   fetch('/api/session',{cache:'no-store'}).then(response=>response.ok?response.json():null).then(session=>{if(!session?.username)return;const name=String(session.username).trim();if(!name)return;$('#greetingName').textContent=`${name.charAt(0).toLocaleUpperCase('pt-BR')}${name.slice(1)}!`;}).catch(()=>{});
 })();
-
