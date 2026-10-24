@@ -5,6 +5,7 @@
     "api/**/*.ts": { "includeFiles": "dashboard.html" }
   },
   "rewrites": [
+    { "source": "/api/(?!home(?:$|/))(.*)", "destination": "/api/home?path=/api/$1" },
     { "source": "/", "destination": "/api/home?path=/" },
     { "source": "/login", "destination": "/api/home?path=/login" },
     { "source": "/register", "destination": "/api/home?path=/register" },
