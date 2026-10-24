@@ -2,9 +2,9 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "fluid": true,
   "rewrites": [
-    { "source": "/", "destination": "/api/site?path=/" },
-    { "source": "/login", "destination": "/api/site?path=/login" },
-    { "source": "/register", "destination": "/api/site?path=/register" },
-    { "source": "/forgot-password", "destination": "/api/site?path=/forgot-password" }
+    { "source": "/", "destination": "/api/home?path=/" },
+    { "source": "/login", "destination": "/api/home?path=/login" },
+    { "source": "/register", "destination": "/api/home?path=/register" },
+    { "source": "/forgot-password", "destination": "/api/home?path=/forgot-password" }
   ]
 }
