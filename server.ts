@@ -1,4 +1,3 @@
-// Entry point recognized by Vercel's Node.js server runtime.
-// The existing HTTP server starts after its environment and database initialize.
-import './server.mjs';
-
+// Vercel server entrypoint: start the shared HTTP server during module initialization.
+import server from './server.mjs';
+server.listen(process.env.PORT ?? 3000);
