@@ -5,7 +5,7 @@ import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
 import { neon } from '@neondatabase/serverless';
 import { waitUntil } from '@vercel/functions';
-import { createCipheriv, createDecipheriv, createHmac, createHash, pbkdf2, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHmac, createHash, pbkdf2, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(ROOT, '.local');
@@ -57,11 +57,39 @@ async function dbExec(statement) {
 }
 
 async function getUser(userId) {
-  return await dbGet('SELECT id, username, salt, password_hash AS hash, recovery_salt AS "recoverySalt", recovery_hash AS "recoveryHash" FROM users WHERE id = ?', userId);
+  return await dbGet('SELECT id, username, email, email_verified_at AS "emailVerifiedAt", salt, password_hash AS hash, recovery_salt AS "recoverySalt", recovery_hash AS "recoveryHash" FROM users WHERE id = ?', userId);
 }
 
 async function getUserByUsername(username) {
-  return await dbGet('SELECT id, username, salt, password_hash AS hash, recovery_salt AS "recoverySalt", recovery_hash AS "recoveryHash" FROM users WHERE lower(username) = lower(?)', String(username || '').trim());
+  return await dbGet('SELECT id, username, email, email_verified_at AS "emailVerifiedAt", salt, password_hash AS hash, recovery_salt AS "recoverySalt", recovery_hash AS "recoveryHash" FROM users WHERE lower(username) = lower(?)', String(username || '').trim());
+}
+
+function normalizeEmail(value) { return String(value || '').trim().toLowerCase(); }
+function validEmail(value) { return value.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value); }
+function emailCodeHash(userId, code) { return createHmac('sha256', dataEncryptionKey).update(`${userId}:${code}`).digest('hex'); }
+
+async function sendMail(to, subject, text) {
+  const apiKey = String(process.env.RESEND_API_KEY || '').trim();
+  const from = String(process.env.EMAIL_FROM || '').trim();
+  if (!apiKey || !from) throw Object.assign(new Error('Envio de e-mail indisponível. Configure RESEND_API_KEY e EMAIL_FROM na Vercel.'), { status: 503 });
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST', headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from, to: [to], subject, text }), signal: AbortSignal.timeout(10000)
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    console.error('Falha no envio de e-mail:', response.status, body.name || body.statusCode || 'provider_error');
+    throw Object.assign(new Error('Não foi possível enviar o e-mail agora. Confira a configuração do remetente e tente novamente.'), { status: 502 });
+  }
+}
+
+async function createEmailCode(userId, email, purpose) {
+  const code = String(randomInt(0, 100000000)).padStart(8, '0');
+  const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+  const table = purpose === 'verify' ? 'email_verification_codes' : 'password_reset_codes';
+  await dbRun(`INSERT INTO ${table} (user_id, email, code_hash, expires_at, attempts, created_at) VALUES (?, ?, ?, ?, 0, ?) ON CONFLICT(user_id) DO UPDATE SET email = excluded.email, code_hash = excluded.code_hash, expires_at = excluded.expires_at, attempts = 0, created_at = excluded.created_at`,
+    userId, email, emailCodeHash(userId, code), expiresAt, new Date().toISOString());
+  return code;
 }
 
 async function getUserCount() {
@@ -148,6 +176,8 @@ async function initializeDatabase() {
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
       username TEXT NOT NULL${usernameConstraint},
+      email TEXT,
+      email_verified_at TEXT,
       salt TEXT NOT NULL,
       password_hash TEXT NOT NULL,
       recovery_salt TEXT,
@@ -188,7 +218,29 @@ async function initializeDatabase() {
     );
     CREATE INDEX IF NOT EXISTS idx_user_data_updated ON user_data(user_id, updated_at);
     CREATE INDEX IF NOT EXISTS idx_user_sessions_expiry ON user_sessions(expires_at);
+    CREATE TABLE IF NOT EXISTS email_verification_codes (
+      user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      email TEXT NOT NULL,
+      code_hash TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS password_reset_codes (
+      user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      email TEXT NOT NULL,
+      code_hash TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
   `);
+  for (const column of ['email TEXT', 'email_verified_at TEXT']) {
+    try { await dbExec(`ALTER TABLE users ADD COLUMN ${column}`); } catch (error) {
+      if (!/already exists|duplicate column/i.test(String(error.message))) throw error;
+    }
+  }
+  await dbExec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_lower ON users (lower(email)) WHERE email IS NOT NULL;');
   if (databaseUrl) await dbExec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_lower ON users (lower(username));');
 
   const legacyAuth = await readLegacyJson(AUTH_FILE);
@@ -540,18 +592,30 @@ function accessPage(mode, nonce) {
   const setupRequired = mode === 'register';
   const forgot = mode === 'forgot';
   const heading = setupRequired ? 'Crie sua conta' : forgot ? 'Redefina sua senha' : 'Acesse seu controle';
-  const detail = setupRequired ? 'Cadastre um usuário e uma senha para proteger seu painel.' : forgot ? 'Informe seu usuário, o código de recuperação salvo no cadastro e escolha uma nova senha.' : 'Entre para continuar para seu painel financeiro.';
-  const passwordField = forgot ? '<label>Nova senha<input name="password" type="password" autocomplete="new-password" required minlength="12"></label><label>Confirme a nova senha<input name="confirmPassword" type="password" autocomplete="new-password" required minlength="12"></label>' : `<label>Senha<input name="password" type="password" autocomplete="${setupRequired ? 'new-password' : 'current-password'}" required minlength="${setupRequired ? '12' : '1'}"></label>${setupRequired ? '<label>Confirme a senha<input name="confirmPassword" type="password" autocomplete="new-password" required minlength="12"></label>' : ''}`;
+  const detail = setupRequired ? 'Cadastre seu usuário, e-mail e senha. O e-mail será usado para verificar sua conta e recuperar o acesso.' : forgot ? 'Informe o e-mail verificado da sua conta para receber um código temporário.' : 'Entre para continuar para seu painel financeiro.';
+  const passwordField = `<label>Senha<input name="password" type="password" autocomplete="${setupRequired ? 'new-password' : 'current-password'}" required minlength="${setupRequired ? '12' : '1'}"></label>${setupRequired ? '<label>Confirme a senha<input name="confirmPassword" type="password" autocomplete="new-password" required minlength="12"></label>' : ''}`;
   const route = setupRequired ? '/api/setup' : forgot ? '/api/password-reset' : '/api/login';
   const submit = setupRequired ? 'Criar conta' : forgot ? 'Salvar nova senha' : 'Entrar';
   const links = forgot ? '<a href="/login">Voltar para o login</a>' : setupRequired ? '<a href="/login">Já tenho conta · Entrar</a>' : '<a href="/forgot-password">Esqueceu a senha?</a><a href="/register">Ainda não tenho conta · Cadastrar</a>';
-  const recoveryNotice = setupRequired ? '<p class="hint">Após o cadastro, será exibido um código de recuperação. Guarde-o em local seguro; ele não será mostrado novamente.</p>' : '';
-  const confirmScript = "if(data.password!==data.confirmPassword){show('As senhas não conferem.');return;}";
+  const recoveryNotice = setupRequired ? '<p class="hint">Após o cadastro, será exibido também um código de recuperação. Guarde-o em local seguro.</p>' : '';
+  const formMarkup = setupRequired
+    ? `<form id="access"><label>Usuário<input name="username" autocomplete="username" required minlength="3" maxlength="40"></label><label>E-mail<input name="email" type="email" autocomplete="email" required maxlength="254"></label>${passwordField}<button>${submit}</button><div class="error" id="error" role="alert"></div><div class="success" id="success" hidden></div></form>`
+    : forgot
+      ? `<form id="requestEmail"><label>E-mail da conta<input name="email" type="email" autocomplete="email" required maxlength="254"></label><button>Enviar código por e-mail</button><div class="error" id="requestError" role="alert"></div><div class="success" id="requestSuccess" hidden></div></form><form id="emailReset" hidden><label>E-mail da conta<input name="email" type="email" autocomplete="email" required maxlength="254"></label><label>Código enviado por e-mail<input name="code" autocomplete="one-time-code" inputmode="numeric" required minlength="8" maxlength="8"></label><label>Nova senha<input name="password" type="password" autocomplete="new-password" required minlength="12"></label><label>Confirme a nova senha<input name="confirmPassword" type="password" autocomplete="new-password" required minlength="12"></label><button>Redefinir senha</button><div class="error" id="emailResetError" role="alert"></div></form><form id="recoveryReset" hidden><label>Usuário<input name="username" autocomplete="username" required minlength="3" maxlength="40"></label><label>Código de recuperação salvo no cadastro<input name="recoveryCode" autocomplete="one-time-code" required minlength="10"></label><label>Nova senha<input name="password" type="password" autocomplete="new-password" required minlength="12"></label><label>Confirme a nova senha<input name="confirmPassword" type="password" autocomplete="new-password" required minlength="12"></label><button>Redefinir com código de recuperação</button><div class="error" id="recoveryError" role="alert"></div></form><nav class="links"><a href="#" id="toggleRecovery">Usar código de recuperação</a></nav>`
+      : `<form id="access"><label>Usuário<input name="username" autocomplete="username" required minlength="3" maxlength="40"></label>${passwordField}<button>${submit}</button><div class="error" id="error" role="alert"></div><div class="success" id="success" hidden></div></form>`;
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>${heading} · Minhas Finanças</title><style nonce="${nonce}">
   *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f7f8f5;color:#18332d;font:14px Arial,sans-serif}.box{width:min(420px,calc(100% - 32px));background:#fff;border:1px solid #e8ece9;border-radius:16px;padding:30px;box-shadow:0 18px 55px #18332d12}.brand{display:flex;align-items:center;gap:9px;font-weight:bold;font-size:18px;margin-bottom:28px;text-decoration:none;color:inherit}.mark{display:grid;place-items:center;width:36px;height:36px;border-radius:11px;background:linear-gradient(145deg,#28755f,#173c31);color:#fff}.mark svg{width:25px;height:25px}.eyebrow{font-size:9px;font-weight:bold;letter-spacing:1.5px;color:#87938d}h1{font-size:24px;margin:8px 0}.copy{font-size:12px;line-height:1.6;color:#78837f;margin-bottom:22px}label{display:flex;flex-direction:column;gap:7px;margin:14px 0;color:#64716a;font-size:11px}input{height:42px;border:1px solid #e1e7e2;border-radius:7px;padding:0 10px;font-size:13px}button{width:100%;border:0;border-radius:8px;background:#215a47;color:#fff;padding:13px;font-size:12px;font-weight:bold;margin-top:9px;cursor:pointer}.hint{font-size:11px;line-height:1.6;color:#748179;margin-top:14px}.error{min-height:16px;color:#aa5947;font-size:11px;margin-top:12px}.success{padding:12px;background:#eff7f1;border:1px solid #d5e7d8;border-radius:8px;color:#245d43;font-size:12px;line-height:1.6;overflow-wrap:anywhere}.links{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:16px}.links a{font-size:11px;color:#28664d}.back{display:block;font-size:11px;color:#728078;text-decoration:none;margin-top:18px}@media(max-width:430px){.box{padding:24px}}
-  </style></head><body><main class="box"><a class="brand" href="/"><span class="mark"><svg viewBox="0 0 40 40" aria-hidden="true"><path d="M8 28.5 16.2 20l5.1 5.2L32 13.5M25.8 13.5H32v6.2" fill="none" stroke="currentColor" stroke-width="3.3" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>Minhas Finanças</span></a><div class="eyebrow">ACESSO PROTEGIDO</div><h1>${heading}</h1><p class="copy">${detail}</p><form id="access"><label>Usuário<input name="username" autocomplete="username" required minlength="3" maxlength="40"></label>${forgot ? '<label>Código de recuperação<input name="recoveryCode" autocomplete="one-time-code" required minlength="10"></label>' : ''}${passwordField}<button>${submit}</button><div class="error" id="error" role="alert"></div><div class="success" id="success" hidden></div></form>${recoveryNotice}<nav class="links">${links}</nav><a class="back" href="/">← Página de apresentação</a></main><script>
-  const form=document.querySelector('#access');function show(message){document.querySelector('#error').textContent=message}form.addEventListener('submit',async event=>{event.preventDefault();const data=Object.fromEntries(new FormData(form));${setupRequired || forgot ? confirmScript : ''}try{const response=await fetch('${route}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const result=await response.json();if(!response.ok)throw new Error(result.error||'Não foi possível concluir.');if(result.recoveryCode){form.hidden=true;document.querySelector('.links').hidden=true;document.querySelector('.copy').textContent='Acesso confirmado. Salve agora seu código de recuperação em local seguro.';const message=document.querySelector('#success');message.hidden=false;message.textContent='Código de recuperação (exibido uma única vez): '+result.recoveryCode;const next=document.createElement('a');next.href='/';next.className='button-link';next.style.cssText='display:block;text-align:center;padding:13px;margin-top:16px;border-radius:8px;background:#215a47;color:#fff;text-decoration:none;font-size:12px;font-weight:bold';next.textContent='Acessar o painel';document.querySelector('.box').append(next);return;}if('${forgot ? 'forgot' : ''}'==='forgot'){show('Senha redefinida. Você já pode entrar com a nova senha.');form.reset();return;}location.replace('/')}catch(error){show(error.message)}})
-  </script></body></html>`.replace('<script>\n  const form=', `<script nonce="${nonce}">\n  const form=`);
+  </style></head><body><main class="box"><a class="brand" href="/"><span class="mark"><svg viewBox="0 0 40 40" aria-hidden="true"><path d="M8 28.5 16.2 20l5.1 5.2L32 13.5M25.8 13.5H32v6.2" fill="none" stroke="currentColor" stroke-width="3.3" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>Minhas Finanças</span></a><div class="eyebrow">ACESSO PROTEGIDO</div><h1>${heading}</h1><p class="copy">${detail}</p>${formMarkup}${recoveryNotice}<nav class="links">${links}</nav><a class="back" href="/">← Página de apresentação</a></main><script nonce="${nonce}">
+  const post=async(path,data)=>{const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const result=await response.json();if(!response.ok)throw new Error(result.error||'Não foi possível concluir.');return result};const show=id=>message=>{document.querySelector(id).textContent=message};
+  ${setupRequired || !forgot ? `document.querySelector('#access').addEventListener('submit',async event=>{event.preventDefault();const form=event.currentTarget,data=Object.fromEntries(new FormData(form));${setupRequired ? "if(data.password!==data.confirmPassword){show('#error')('As senhas não conferem.');return;}" : ''}try{const result=await post('${route}',data);if(result.recoveryCode){form.hidden=true;document.querySelector('.links').hidden=true;document.querySelector('.copy').textContent='Conta criada. Guarde os códigos exibidos e verifique seu e-mail na área da conta.';const message=document.querySelector('#success');message.hidden=false;message.textContent='Código de recuperação (exibido uma única vez): '+result.recoveryCode+(result.emailVerificationSent?' · Código de verificação enviado para '+data.email:result.emailMessage?' · '+result.emailMessage:'');const next=document.createElement('a');next.href='/';next.className='button-link';next.style.cssText='display:block;text-align:center;padding:13px;margin-top:16px;border-radius:8px;background:#215a47;color:#fff;text-decoration:none;font-size:12px;font-weight:bold';next.textContent='Acessar o painel';document.querySelector('.box').append(next);return;}location.replace('/')}catch(error){show('#error')(error.message)}});` : ''}
+  ${forgot ? `const requestForm=document.querySelector('#requestEmail'),resetForm=document.querySelector('#emailReset'),recoveryForm=document.querySelector('#recoveryReset');let useRecovery=false;requestForm.addEventListener('submit',async event=>{event.preventDefault();const email=requestForm.elements.email.value.trim();try{await post('/api/password-reset/request',{email});document.querySelector('#requestSuccess').hidden=false;document.querySelector('#requestSuccess').textContent='Se o e-mail estiver verificado, enviaremos um código válido por 15 minutos.';resetForm.elements.email.value=email;requestForm.hidden=true;resetForm.hidden=false;document.querySelector('#toggleRecovery').textContent='Usar código de recuperação';}catch(error){show('#requestError')(error.message)}});resetForm.addEventListener('submit',async event=>{event.preventDefault();const data=Object.fromEntries(new FormData(resetForm));if(data.password!==data.confirmPassword){show('#emailResetError')('As senhas não conferem.');return;}try{await post('/api/password-reset/email',data);document.querySelector('.copy').textContent='Senha redefinida. Você já pode entrar com a nova senha.';resetForm.hidden=true;requestForm.hidden=true;document.querySelector('#toggleRecovery').hidden=true;}catch(error){show('#emailResetError')(error.message)}});recoveryForm.addEventListener('submit',async event=>{event.preventDefault();const data=Object.fromEntries(new FormData(recoveryForm));if(data.password!==data.confirmPassword){show('#recoveryError')('As senhas não conferem.');return;}try{await post('/api/password-reset',data);document.querySelector('.copy').textContent='Senha redefinida. Você já pode entrar com a nova senha.';recoveryForm.hidden=true;document.querySelector('#toggleRecovery').hidden=true;}catch(error){show('#recoveryError')(error.message)}});document.querySelector('#toggleRecovery').addEventListener('click',event=>{event.preventDefault();useRecovery=!useRecovery;requestForm.hidden=useRecovery;resetForm.hidden=true;recoveryForm.hidden=!useRecovery;event.currentTarget.textContent=useRecovery?'Voltar à recuperação por e-mail':'Usar código de recuperação';});` : ''}
+  </script></body></html>`;
+}
+
+function accountEmailPage(nonce, user) {
+  const email = String(user.email || '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
+  const status = user.emailVerifiedAt ? 'E-mail verificado' : email ? 'E-mail ainda não verificado' : 'Nenhum e-mail associado';
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>E-mail da conta · Minhas Finanças</title><style nonce="${nonce}">*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f7f8f5;color:#18332d;font:14px Arial,sans-serif}.box{width:min(460px,calc(100% - 32px));background:white;border:1px solid #e8ece9;border-radius:16px;padding:30px;box-shadow:0 18px 55px #18332d12}h1{font-size:24px;margin:8px 0}.copy{font-size:13px;line-height:1.65;color:#718078}label{display:flex;flex-direction:column;gap:7px;margin:15px 0;color:#64716a;font-size:12px}input{height:43px;border:1px solid #e1e7e2;border-radius:7px;padding:0 10px;font-size:14px}button,.back{display:block;width:100%;border:0;border-radius:8px;background:#215a47;color:white;padding:13px;font-size:13px;font-weight:bold;margin-top:10px;text-align:center;text-decoration:none;cursor:pointer}.msg{min-height:18px;margin-top:12px;font-size:12px;color:#aa5947}.ok{color:#245d43}.links{margin-top:18px;font-size:12px;color:#28664d}</style></head><body><main class="box"><p>MINHAS FINANÇAS · CONTA</p><h1>Recuperação por e-mail</h1><p class="copy">Associe um e-mail que você controla. Para proteger a conta, confirmaremos o endereço com um código de uso único antes de permitir a recuperação de senha.</p><p class="copy"><strong>Endereço atual:</strong> ${email || 'não cadastrado'}<br><strong>Situação:</strong> ${status}</p><form id="request"><label>Novo e-mail<input name="email" type="email" maxlength="254" autocomplete="email" value="${email}" required></label><button>Enviar código de verificação</button></form><form id="verify" hidden><label>E-mail a verificar<input name="email" type="email" readonly></label><label>Código de verificação<input name="code" inputmode="numeric" autocomplete="one-time-code" minlength="8" maxlength="8" required></label><button>Confirmar e-mail</button></form><div id="message" class="msg" role="status"></div><a class="back" href="/">Voltar ao painel</a><div class="links"><a href="/login">Sair e ir ao login</a></div></main><script nonce="${nonce}">const requestForm=document.querySelector('#request'),verifyForm=document.querySelector('#verify'),message=document.querySelector('#message');async function post(path,data){const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}),result=await response.json();if(!response.ok)throw new Error(result.error||'Não foi possível concluir.');return result}requestForm.addEventListener('submit',async e=>{e.preventDefault();try{const email=requestForm.elements.email.value.trim();await post('/api/account/email/request',{email});verifyForm.elements.email.value=email;requestForm.hidden=true;verifyForm.hidden=false;message.className='msg ok';message.textContent='Se o remetente estiver configurado, enviamos um código válido por 15 minutos.'}catch(error){message.textContent=error.message}});verifyForm.addEventListener('submit',async e=>{e.preventDefault();try{await post('/api/account/email/verify',Object.fromEntries(new FormData(verifyForm)));message.className='msg ok';message.textContent='E-mail verificado e associado à conta. A recuperação de senha já está habilitada.';verifyForm.hidden=true;requestForm.hidden=true}catch(error){message.textContent=error.message}});</script></body></html>`;
 }
 
 async function signedBinanceRead(pathname, apiKey, apiSecret, hosts, clockOffset, query = {}) {
@@ -776,9 +840,6 @@ server.headersTimeout = 15_000;
 server.requestTimeout = 30_000;
 server.keepAliveTimeout = 5_000;
 server.maxRequestsPerSocket = 1000;
-const port = Number(process.env.PORT || (process.env.VERCEL ? 3000 : 4174));
-const host = process.env.HOST || (process.env.VERCEL || process.env.RENDER === 'true' ? '0.0.0.0' : '127.0.0.1');
-if (!process.env.VERCEL) server.listen(port, host, () => console.log(`Minhas Finanças em http://${host}:${port}`));
 
 async function main() {
   await loadDotEnv();
@@ -804,7 +865,8 @@ async function main() {
       }
       if (req.method === 'GET' && pathname === '/api/session') {
         const session = await currentSession(req);
-        send(res, 200, { authenticated: Boolean(session), userId: session?.userId || null, username: session?.username || null, setupRequired: await getUserCount() === 0 });
+        const user = session ? await getUser(session.userId) : null;
+        send(res, 200, { authenticated: Boolean(session), userId: session?.userId || null, username: session?.username || null, email: user?.email || null, emailVerified: Boolean(user?.emailVerifiedAt), setupRequired: await getUserCount() === 0 });
         return;
       }
       if (req.method === 'POST' && pathname === '/api/setup') {
@@ -812,8 +874,9 @@ async function main() {
         if (await incrementRateLimit('signup', remote, 15 * 60 * 1000) > 5) { send(res, 429, { error: 'Muitos cadastros deste endereço. Aguarde 15 minutos e tente novamente.' }); return; }
         const body = await readJson(req);
         const username = String(body.username || '').trim();
+        const email = normalizeEmail(body.email);
         const password = String(body.password || '');
-        if (username.length < 3 || username.length > 40 || password.length < 12 || password.length > 200 || password !== String(body.confirmPassword || '')) { send(res, 400, { error: 'Informe um usuário válido e confirme uma senha de pelo menos 12 caracteres.' }); return; }
+        if (username.length < 3 || username.length > 40 || !validEmail(email) || password.length < 12 || password.length > 200 || password !== String(body.confirmPassword || '')) { send(res, 400, { error: 'Informe um usuário, e-mail válido e senha de pelo menos 12 caracteres confirmada.' }); return; }
         const salt = randomBytes(16);
         const hash = await pbkdf(password, salt);
         const recoveryCode = randomBytes(18).toString('base64url');
@@ -821,14 +884,59 @@ async function main() {
         const recoveryHash = await pbkdf(recoveryCode, recoverySalt);
         const id = randomUUID();
         try {
-          await dbRun('INSERT INTO users (id, username, salt, password_hash, recovery_salt, recovery_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            id, username, salt.toString('base64'), hash.toString('base64'), recoverySalt.toString('base64'), recoveryHash.toString('base64'), new Date().toISOString());
+          await dbRun('INSERT INTO users (id, username, email, salt, password_hash, recovery_salt, recovery_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            id, username, email, salt.toString('base64'), hash.toString('base64'), recoverySalt.toString('base64'), recoveryHash.toString('base64'), new Date().toISOString());
         } catch (error) {
-          if (error.code === '23505' || String(error.message).includes('UNIQUE')) { send(res, 409, { error: 'Este nome de usuário já está cadastrado.' }); return; }
+          if (error.code === '23505' || String(error.message).includes('UNIQUE')) { send(res, 409, { error: 'Este nome de usuário ou e-mail já está cadastrado.' }); return; }
           throw error;
         }
         await clearRateLimit('auth', remote);
-        await createSession(res, req, await getUser(id), { recoveryCode });
+        let emailVerificationSent = false, emailMessage = '';
+        try {
+          const code = await createEmailCode(id, email, 'verify');
+          await sendMail(email, 'Verifique seu e-mail · Minhas Finanças', `Seu código de verificação é ${code}. Ele expira em 15 minutos. Se você não iniciou o cadastro, ignore esta mensagem.`);
+          emailVerificationSent = true;
+        } catch (error) { emailMessage = error.message || 'Não foi possível enviar o código de verificação.'; }
+        await createSession(res, req, await getUser(id), { recoveryCode, emailVerificationSent, emailMessage });
+        return;
+      }
+      if (req.method === 'POST' && pathname === '/api/password-reset/request') {
+        const remote = requestAddress(req);
+        if ((await getRateLimit('reset-email', remote, 15 * 60 * 1000)).count >= 4) { send(res, 429, { error: 'Muitas solicitações. Aguarde 15 minutos e tente novamente.' }); return; }
+        const body = await readJson(req), email = normalizeEmail(body.email);
+        if (!validEmail(email)) { send(res, 400, { error: 'Informe um e-mail válido.' }); return; }
+        if (!String(process.env.RESEND_API_KEY || '').trim() || !String(process.env.EMAIL_FROM || '').trim()) { send(res, 503, { error: 'Recuperação por e-mail indisponível: configure RESEND_API_KEY e EMAIL_FROM no servidor.' }); return; }
+        const auth = await dbGet('SELECT id, email FROM users WHERE lower(email) = lower(?) AND email_verified_at IS NOT NULL', email);
+        await incrementRateLimit('reset-email', remote, 15 * 60 * 1000);
+        if (auth) {
+          try {
+            const code = await createEmailCode(auth.id, auth.email, 'reset');
+            await sendMail(auth.email, 'Código para redefinir sua senha · Minhas Finanças', `Seu código de redefinição é ${code}. Ele expira em 15 minutos e pode ser usado uma única vez. Se você não solicitou, ignore esta mensagem.`);
+          } catch (error) { console.error('Não foi possível enviar o código de recuperação:', error.message); }
+        }
+        send(res, 200, { ok: true });
+        return;
+      }
+      if (req.method === 'POST' && pathname === '/api/password-reset/email') {
+        const remote = requestAddress(req);
+        if ((await getRateLimit('auth', remote, 60000)).count >= 6) { send(res, 429, { error: 'Muitas tentativas. Aguarde um minuto e tente novamente.' }); return; }
+        const body = await readJson(req), email = normalizeEmail(body.email), code = String(body.code || ''), password = String(body.password || '');
+        if (!validEmail(email) || !/^\d{8}$/.test(code) || password.length < 12 || password.length > 200 || password !== String(body.confirmPassword || '')) { send(res, 400, { error: 'Confira o e-mail, o código e a confirmação da senha (mínimo 12 caracteres).' }); return; }
+        const auth = await dbGet('SELECT id, email FROM users WHERE lower(email) = lower(?) AND email_verified_at IS NOT NULL', email);
+        const reset = auth ? await dbGet('SELECT email, code_hash, expires_at, attempts FROM password_reset_codes WHERE user_id = ?', auth.id) : null;
+        const actual = auth && reset && /^\d{8}$/.test(code) ? emailCodeHash(auth.id, code) : '0'.repeat(64);
+        const valid = Boolean(reset && reset.email === auth?.email && Number(reset.attempts) < 5 && Date.parse(reset.expires_at) > Date.now() && timingSafeEqual(Buffer.from(actual), Buffer.from(reset.code_hash)));
+        if (!valid) {
+          if (auth && reset) await dbRun('UPDATE password_reset_codes SET attempts = attempts + 1 WHERE user_id = ?', auth.id);
+          await incrementRateLimit('auth', remote, 60000);
+          send(res, 401, { error: 'E-mail ou código inválido ou expirado.' }); return;
+        }
+        const salt = randomBytes(16), hash = await pbkdf(password, salt);
+        await dbRun('UPDATE users SET salt = ?, password_hash = ? WHERE id = ?', salt.toString('base64'), hash.toString('base64'), auth.id);
+        await dbRun('DELETE FROM password_reset_codes WHERE user_id = ?', auth.id);
+        await dbRun('DELETE FROM user_sessions WHERE user_id = ?', auth.id);
+        await clearRateLimit('auth', remote);
+        send(res, 200, { ok: true });
         return;
       }
       if (req.method === 'POST' && pathname === '/api/password-reset') {
@@ -921,6 +1029,42 @@ async function main() {
       if (pathname.startsWith('/api/')) {
         const session = await currentSession(req);
         if (!session) { send(res, 401, { error: 'Entre novamente para acessar suas contas.' }); return; }
+        if (req.method === 'GET' && pathname === '/api/account/email') {
+          const user = await getUser(session.userId);
+          send(res, 200, { email: user.email || null, verified: Boolean(user.emailVerifiedAt) });
+          return;
+        }
+        if (req.method === 'POST' && pathname === '/api/account/email/request') {
+          const remote = requestAddress(req);
+          if ((await getRateLimit('verify-email', remote, 15 * 60 * 1000)).count >= 4) { send(res, 429, { error: 'Muitos códigos solicitados. Aguarde 15 minutos e tente novamente.' }); return; }
+          const body = await readJson(req), email = normalizeEmail(body.email);
+          if (!validEmail(email)) { send(res, 400, { error: 'Informe um endereço de e-mail válido.' }); return; }
+          const existing = await dbGet('SELECT id FROM users WHERE lower(email) = lower(?) AND id <> ?', email, session.userId);
+          if (existing) { send(res, 409, { error: 'Este e-mail já está associado a outra conta.' }); return; }
+          const code = await createEmailCode(session.userId, email, 'verify');
+          await incrementRateLimit('verify-email', remote, 15 * 60 * 1000);
+          try { await sendMail(email, 'Verifique seu e-mail · Minhas Finanças', `Seu código de verificação é ${code}. Ele expira em 15 minutos. Se você não solicitou, ignore esta mensagem.`); }
+          catch (error) { send(res, error.status || 502, { error: error.message || 'Não foi possível enviar o código de verificação.' }); return; }
+          send(res, 200, { ok: true });
+          return;
+        }
+        if (req.method === 'POST' && pathname === '/api/account/email/verify') {
+          const body = await readJson(req), email = normalizeEmail(body.email), code = String(body.code || '');
+          const pending = await dbGet('SELECT email, code_hash, expires_at, attempts FROM email_verification_codes WHERE user_id = ?', session.userId);
+          const actual = /^\d{8}$/.test(code) ? emailCodeHash(session.userId, code) : '';
+          const matches = Boolean(pending && pending.email === email && Number(pending.attempts) < 5 && Date.parse(pending.expires_at) > Date.now() && actual && actual.length === pending.code_hash.length && timingSafeEqual(Buffer.from(actual), Buffer.from(pending.code_hash)));
+          if (!matches) {
+            if (pending) await dbRun('UPDATE email_verification_codes SET attempts = attempts + 1 WHERE user_id = ?', session.userId);
+            send(res, 401, { error: 'E-mail ou código inválido ou expirado.' }); return;
+          }
+          const existing = await dbGet('SELECT id FROM users WHERE lower(email) = lower(?) AND id <> ?', email, session.userId);
+          if (existing) { send(res, 409, { error: 'Este e-mail já está associado a outra conta.' }); return; }
+          await dbRun('UPDATE users SET email = ?, email_verified_at = ? WHERE id = ?', email, new Date().toISOString(), session.userId);
+          await dbRun('DELETE FROM email_verification_codes WHERE user_id = ?', session.userId);
+          await dbRun('DELETE FROM password_reset_codes WHERE user_id = ?', session.userId);
+          send(res, 200, { ok: true });
+          return;
+        }
         if (req.method === 'GET' && pathname === '/api/data') {
           const rows = await dbAll('SELECT data_key, value FROM user_data WHERE user_id = ? AND data_key LIKE ?', session.userId, 'browser:%');
           const data = {};
@@ -1169,6 +1313,12 @@ async function main() {
         htmlResponse(res, accessPage('forgot', nonce), nonce);
         return;
       }
+      if (req.method === 'GET' && pathname === '/account-email') {
+        if (!session) { res.writeHead(302, { Location: '/login' }); res.end(); return; }
+        const nonce = randomBytes(18).toString('base64');
+        htmlResponse(res, accountEmailPage(nonce, await getUser(session.userId)), nonce);
+        return;
+      }
       if (!session) {
         if (req.method === 'GET' && pathname === '/index.html') {
           const nonce = randomBytes(18).toString('base64');
@@ -1187,6 +1337,19 @@ async function main() {
       else res.destroy();
     }
   };
+  if (!process.env.VERCEL) {
+    const port = Number(process.env.PORT || 4174);
+    const host = process.env.HOST || (process.env.RENDER === 'true' ? '0.0.0.0' : '127.0.0.1');
+    await new Promise((resolve, reject) => {
+      const onError = error => reject(error);
+      server.once('error', onError);
+      server.listen(port, host, () => {
+        server.off('error', onError);
+        console.log(`Minhas Finanças em http://${host}:${port}`);
+        resolve();
+      });
+    });
+  }
 }
 
 applicationInitialization = main().catch(error => {
@@ -1195,4 +1358,3 @@ applicationInitialization = main().catch(error => {
 });
 
 export default server;
-

@@ -9,6 +9,7 @@
     { "source": "/", "destination": "/api/home?path=/" },
     { "source": "/login", "destination": "/api/home?path=/login" },
     { "source": "/register", "destination": "/api/home?path=/register" },
-    { "source": "/forgot-password", "destination": "/api/home?path=/forgot-password" }
+    { "source": "/forgot-password", "destination": "/api/home?path=/forgot-password" },
+    { "source": "/account-email", "destination": "/api/home?path=/account-email" }
   ]
 }

@@ -31,7 +31,12 @@ O projeto Vercel `meu_controle_financeiro` usa Node.js 24 e reconhece `server.ts
 
 O login e os limites de tentativas ficam armazenados no Postgres, para funcionar entre instâncias da Vercel. Não use o SQLite local em produção.
 
+### Recuperação por e-mail
+
+O cadastro solicita um e-mail. O usuário pode verificar ou atualizar esse endereço em **E-mail da conta** no painel. A redefinição envia um código de 8 dígitos, válido por 15 minutos e limitado a cinco tentativas. O código de recuperação criado no cadastro continua disponível como alternativa.
+
+Para enviar mensagens, configure `RESEND_API_KEY` como segredo e `EMAIL_FROM` como remetente autorizado pelo Resend nos ambientes Production e Preview da Vercel. O domínio do remetente precisa estar verificado no Resend. Contas antigas começam sem e-mail associado; elas precisam continuar autenticadas para cadastrar e verificar um endereço. Se o usuário também perdeu o código de recuperação, não existe um modo seguro de associar um e-mail sem validar a identidade da conta.
+
 ## Webhooks Pluggy
 
 O servidor recebe `item/created`, `item/updated` e `item/error` em `POST /api/webhooks/pluggy`. Defina `PLUGGY_WEBHOOK_SECRET` no `.env` e cadastre na Pluggy um webhook HTTPS público para `/api/webhooks/pluggy` com o header `X-Webhook-Secret`. A Pluggy envia o `clientUserId` definido no Connect Token; o servidor usa esse identificador para vincular o evento ao usuário.
-
