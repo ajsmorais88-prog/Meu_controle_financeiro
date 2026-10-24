@@ -742,7 +742,7 @@ async function signedBinanceAccount(apiKey, apiSecret) {
 }
 
 async function serveStatic(req, res, pathname) {
-  const allowed = new Map([['/', 'index.html'], ['/index.html', 'index.html'], ['/app.js', 'app.js'], ['/styles.css', 'styles.css']]);
+  const allowed = new Map([['/', 'dashboard.html'], ['/index.html', 'dashboard.html'], ['/app.js', 'app.js'], ['/styles.css', 'styles.css']]);
   const filename = allowed.get(pathname);
   if (!filename) { res.writeHead(404); res.end('Not found'); return; }
   const filePath = path.join(ROOT, filename);
