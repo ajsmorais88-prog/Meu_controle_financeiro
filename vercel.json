@@ -2,6 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "fluid": true,
   "rewrites": [
+    { "source": "/", "destination": "/api/site?path=/" },
     { "source": "/login", "destination": "/api/site?path=/login" },
     { "source": "/register", "destination": "/api/site?path=/register" },
     { "source": "/forgot-password", "destination": "/api/site?path=/forgot-password" }
