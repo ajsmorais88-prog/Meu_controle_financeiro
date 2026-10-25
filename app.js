@@ -117,7 +117,7 @@
     const currentMonth=monthKey(today);
     const nextMonth=monthKey(new Date(today.getFullYear(),today.getMonth()+1,1));
     const scheduledCardTotal=period=>transactions.filter(t=>t.type==='expense'&&(t.paymentMethod==='cartao'||t.cardId)).reduce((sum,t)=>{const card=cards.find(item=>String(item.id)===String(t.cardId));return sum+cardPaymentSchedule(t,card).filter(payment=>payment.monthKey===period).reduce((monthSum,payment)=>monthSum+payment.amount,0);},0);
-    const currentCardInvoice=scheduledCardTotal(currentMonth),nextMonthCardExpenses=scheduledCardTotal(nextMonth);
+    const currentCardInvoice=transactions.filter(t=>t.type==='expense'&&(t.paymentMethod==='cartao'||t.cardId)&&monthKey(parseDate(t.date))===currentMonth).reduce((sum,t)=>{const installments=Math.min(120,Math.max(1,Number(t.installments)||1)),amount=Number(t.amount)||0;const monthlyPurchaseAmount=installments>1&&!t.statementBatchId?Math.ceil(Math.round(amount*100)/installments)/100:amount;return sum+monthlyPurchaseAmount;},0),nextMonthCardExpenses=scheduledCardTotal(nextMonth);
     const realizedExpense=realizedExpenseInRange(monday,sunday)+nextMonthCardExpenses/4;
     budget=Math.max(0,(monthlyIncome*0.4-nextMonthCardExpenses)/4);
     $('#plannedValue').textContent=money(budget); $('#spentValue').textContent=money(realizedExpense);
