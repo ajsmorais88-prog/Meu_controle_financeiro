@@ -5,7 +5,7 @@ import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
 import { neon } from '@neondatabase/serverless';
 import { waitUntil } from '@vercel/functions';
-import { createCipheriv, createDecipheriv, createHmac, createHash, pbkdf2, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHmac, createHash, sign as cryptoSign, pbkdf2, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(ROOT, '.local');
@@ -653,6 +653,114 @@ async function binanceHistoricalCloses(symbol, startTime, endTime, hosts) {
   return closes;
 }
 
+const CRYPTO_EXCHANGES = Object.freeze({
+  binance: { name: 'Binance', fields: ['apiKey', 'apiSecret'] },
+  mercadobitcoin: { name: 'Mercado Bitcoin', fields: ['apiKey', 'apiSecret'] },
+  coinbase: { name: 'Coinbase', fields: ['apiKey', 'privateKey'] },
+  okx: { name: 'OKX', fields: ['apiKey', 'apiSecret', 'passphrase'] },
+  bybit: { name: 'Bybit', fields: ['apiKey', 'apiSecret'] },
+  kraken: { name: 'Kraken', fields: ['apiKey', 'apiSecret'] }
+});
+
+function cryptoBalance(asset, free, locked = 0, extra = {}) {
+  const raw = String(asset || '').toUpperCase().trim();
+  const aliases = { XBT: 'BTC', XXBT: 'BTC', XETH: 'ETH', XXETH: 'ETH', ZUSD: 'USD', ZEUR: 'EUR', ZGBP: 'GBP', ZCAD: 'CAD', ZJPY: 'JPY' };
+  const symbol = aliases[raw] || raw.split('-')[0];
+  const available = Number(free) || 0;
+  const held = Number(locked) || 0;
+  return { asset: symbol, free: available, locked: held, total: available + held, ...extra };
+}
+
+async function exchangeJson(url, options, exchangeName) {
+  let response;
+  try { response = await fetch(url, { ...options, signal: AbortSignal.timeout(12000), cache: 'no-store' }); }
+  catch (error) { throw Object.assign(new Error('Não foi possível conectar à API da ' + exchangeName + '. Verifique a conexão e tente novamente.'), { status: 502 }); }
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const code = payload.code || payload.retCode || payload.error || payload.message || '';
+    throw Object.assign(new Error('A ' + exchangeName + ' recusou a consulta (HTTP ' + response.status + (code ? ', código ' + String(code).slice(0, 80) : '') + '). Confira a chave, o segredo, as permissões somente leitura e a restrição de IP.'), { status: response.status >= 400 && response.status < 600 ? response.status : 502 });
+  }
+  return payload;
+}
+
+function compactBalances(entries) {
+  const totals = new Map();
+  for (const item of entries) {
+    const symbol = String(item.asset || '').toUpperCase().trim();
+    const total = Number(item.total);
+    if (!/^[A-Z0-9]{2,20}$/.test(symbol) || !Number.isFinite(total) || total <= 0) continue;
+    const previous = totals.get(symbol) || { asset: symbol, free: 0, locked: 0, total: 0 };
+    previous.free += Number(item.free) || 0; previous.locked += Number(item.locked) || 0; previous.total += total;
+    totals.set(symbol, previous);
+  }
+  return [...totals.values()].filter(item => item.total > 0);
+}
+
+function base64url(value) { return Buffer.from(value).toString('base64url'); }
+function coinbaseJwt(apiKey, privateKey) {
+  const now = Math.floor(Date.now() / 1000);
+  const header = { alg: 'ES256', kid: apiKey, nonce: randomBytes(16).toString('hex') };
+  const claims = { iss: 'cdp', nbf: now - 5, exp: now + 120, sub: apiKey, uri: 'GET api.coinbase.com/api/v3/brokerage/accounts' };
+  const input = base64url(JSON.stringify(header)) + '.' + base64url(JSON.stringify(claims));
+  const signature = cryptoSign('sha256', Buffer.from(input), { key: privateKey, dsaEncoding: 'ieee-p1363' });
+  return input + '.' + signature.toString('base64url');
+}
+
+async function fetchCryptoExchangeAccount(provider, credentials) {
+  const spec = CRYPTO_EXCHANGES[provider];
+  if (!spec) throw Object.assign(new Error('Corretora cripto não disponível.'), { status: 400 });
+  if (!credentials || spec.fields.some(field => !credentials[field])) return { configured: false, exchange: provider, balances: [] };
+  let balances = [];
+  if (provider === 'binance') {
+    const data = await signedBinanceAccount(credentials.apiKey, credentials.apiSecret);
+    return { ...data, exchange: provider };
+  }
+  if (provider === 'mercadobitcoin') {
+    const form = new URLSearchParams({ grant_type: 'client_credentials', scope: 'global', client_id: credentials.apiKey, client_secret: credentials.apiSecret });
+    const token = await exchangeJson('https://api.mercadobitcoin.net/api/v4/oauth2/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: form.toString() }, spec.name);
+    if (!token.access_token) throw Object.assign(new Error('A ' + spec.name + ' não retornou um token válido. Confira as credenciais.'), { status: 502 });
+    const headers = { Authorization: 'Bearer ' + token.access_token };
+    const accountsPayload = await exchangeJson('https://api.mercadobitcoin.net/api/v4/accounts', { headers }, spec.name);
+    const accounts = Array.isArray(accountsPayload) ? accountsPayload : (accountsPayload.results || accountsPayload.data || []);
+    const account = accounts[0];
+    if (!account || !account.id) throw Object.assign(new Error('Nenhuma conta foi encontrada no Mercado Bitcoin.'), { status: 502 });
+    const payload = await exchangeJson('https://api.mercadobitcoin.net/api/v4/accounts/' + encodeURIComponent(account.id) + '/balances', { headers }, spec.name);
+    const rows = Array.isArray(payload) ? payload : (payload.results || payload.data || []);
+    balances = rows.map(item => { const asset = String(item.symbol || item.currency || '').split('-')[0]; const total = Number(item.total); const locked = Number(item.on_hold) || 0; return cryptoBalance(asset, Number.isFinite(total) ? Math.max(0, total - locked) : item.available, locked); });
+  } else if (provider === 'coinbase') {
+    const jwt = coinbaseJwt(credentials.apiKey, credentials.privateKey);
+    const payload = await exchangeJson('https://api.coinbase.com/api/v3/brokerage/accounts?limit=250', { headers: { Authorization: 'Bearer ' + jwt } }, spec.name);
+    const rows = Array.isArray(payload.accounts) ? payload.accounts : [];
+    balances = rows.map(item => cryptoBalance(item.currency, Number(item.available_balance && item.available_balance.value) + Number(item.hold && item.hold.value)));
+  } else if (provider === 'okx') {
+    const timestamp = new Date().toISOString();
+    const path = '/api/v5/account/balance';
+    const signature = createHmac('sha256', credentials.apiSecret).update(timestamp + 'GET' + path).digest('base64');
+    const payload = await exchangeJson('https://www.okx.com' + path, { headers: { 'OK-ACCESS-KEY': credentials.apiKey, 'OK-ACCESS-SIGN': signature, 'OK-ACCESS-TIMESTAMP': timestamp, 'OK-ACCESS-PASSPHRASE': credentials.passphrase } }, spec.name);
+    if (String(payload.code) !== '0') throw Object.assign(new Error('A OKX recusou a autenticação. Confira chave, senha da API e permissões somente leitura.'), { status: 502 });
+    const rows = (payload.data || []).flatMap(account => account.details || []);
+    balances = rows.map(item => { const free = Number(item.availBal) || 0; const locked = Number(item.frozenBal) || 0; const cash = Number(item.cashBal); return cryptoBalance(item.ccy, free, locked, Number.isFinite(cash) && cash > free + locked ? { total: cash } : {}); });
+  } else if (provider === 'bybit') {
+    const timestamp = String(Date.now()), recvWindow = '5000', query = 'accountType=UNIFIED';
+    const signature = createHmac('sha256', credentials.apiSecret).update(timestamp + credentials.apiKey + recvWindow + query).digest('hex');
+    const payload = await exchangeJson('https://api.bybit.com/v5/account/wallet-balance?' + query, { headers: { 'X-BAPI-API-KEY': credentials.apiKey, 'X-BAPI-SIGN': signature, 'X-BAPI-TIMESTAMP': timestamp, 'X-BAPI-RECV-WINDOW': recvWindow } }, spec.name);
+    if (Number(payload.retCode) !== 0) throw Object.assign(new Error('A Bybit recusou a autenticação ou a consulta de saldo. Confira as permissões somente leitura.'), { status: 502 });
+    const rows = (payload.result && payload.result.list || []).flatMap(account => account.coin || []);
+    balances = rows.map(item => { const total = Number(item.walletBalance) || 0; const locked = Math.min(total, Number(item.locked) || 0); return cryptoBalance(item.coin, Math.max(0, total - locked), locked); });
+  } else if (provider === 'kraken') {
+    const path = '/0/private/Balance';
+    const nonce = String(Date.now() * 1000);
+    const body = new URLSearchParams({ nonce }).toString();
+    const digest = createHash('sha256').update(nonce + body).digest();
+    const secret = Buffer.from(credentials.apiSecret, 'base64');
+    const signature = createHmac('sha512', secret).update(Buffer.concat([Buffer.from(path), digest])).digest('base64');
+    const payload = await exchangeJson('https://api.kraken.com' + path, { method: 'POST', headers: { 'API-Key': credentials.apiKey, 'API-Sign': signature, 'Content-Type': 'application/x-www-form-urlencoded' }, body }, spec.name);
+    if (Array.isArray(payload.error) && payload.error.length) throw Object.assign(new Error('A Kraken recusou a consulta. Confira a chave, a assinatura e as permissões somente leitura.'), { status: 502 });
+    balances = Object.entries(payload.result || {}).map(([asset, amount]) => cryptoBalance(asset, Number(amount) || 0));
+  }
+  return { configured: true, exchange: provider, updatedAt: new Date().toISOString(), balances: compactBalances(balances) };
+}
+
 async function signedBinanceAccount(apiKey, apiSecret) {
   if (!apiKey || !apiSecret) return { configured: false };
   // Binance documents these official REST API hosts. Try another host only for
@@ -1106,6 +1214,39 @@ async function main() {
             send(res, 200, { ok: true });
             return;
           }
+        }
+        const cryptoRoute = pathname.match(/^\/api\/crypto\/([a-z]+)\/(credentials|account)$/);
+        if (cryptoRoute) {
+          const provider = cryptoRoute[1];
+          const action = cryptoRoute[2];
+          const spec = CRYPTO_EXCHANGES[provider];
+          if (!spec) { send(res, 404, { error: 'Corretora cripto não disponível.' }); return; }
+          const secretName = provider === 'binance' ? 'binance' : 'crypto:' + provider;
+          if (action === 'credentials' && req.method === 'GET') {
+            const configured = Boolean(await dbGet('SELECT 1 FROM user_secrets WHERE user_id = ? AND secret_name = ?', session.userId, secretName));
+            send(res, 200, { configured }); return;
+          }
+          if (action === 'credentials' && req.method === 'PUT') {
+            let body;
+            try { body = await readJson(req, 16384); } catch { send(res, 400, { error: 'As credenciais enviadas são inválidas.' }); return; }
+            const credentials = {};
+            for (const field of spec.fields) { credentials[field] = String(body[field] || '').trim(); const max = field === 'privateKey' ? 12000 : 1000; if (credentials[field].length < 8 || credentials[field].length > max) { send(res, 400, { error: 'Confira os campos exigidos pela corretora e informe valores válidos.' }); return; } }
+            await saveUserSecret(session.userId, secretName, JSON.stringify(credentials));
+            send(res, 200, { ok: true, configured: true }); return;
+          }
+          if (action === 'credentials' && req.method === 'DELETE') {
+            await dbRun('DELETE FROM user_secrets WHERE user_id = ? AND secret_name = ?', session.userId, secretName);
+            send(res, 200, { ok: true, configured: false }); return;
+          }
+          if (action === 'account' && req.method === 'GET') {
+            try { let credentials = {}; try { credentials = JSON.parse(await getUserSecret(session.userId, secretName) || '{}'); } catch {}
+              const account = await fetchCryptoExchangeAccount(provider, credentials);
+              if (!account.configured) { send(res, 503, { configured: false, error: 'Cadastre as credenciais somente leitura da ' + spec.name + ' nesta conta.' }); return; }
+              send(res, 200, account);
+            } catch (error) { send(res, error.status || 502, { error: error.message || 'Não foi possível consultar a ' + spec.name + '.' }); }
+            return;
+          }
+          send(res, 405, { error: 'Método não permitido.' }); return;
         }
         if (req.method === 'GET' && pathname === '/api/binance/credentials') {
           const saved = Boolean(await dbGet('SELECT 1 FROM user_secrets WHERE user_id = ? AND secret_name = ?', session.userId, 'binance'));

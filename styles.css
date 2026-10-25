@@ -108,3 +108,7 @@ dialog{border-radius:18px;box-shadow:0 24px 80px #102c2438}dialog form{padding:2
 
 .allocation-breakdown-amount.negative{color:#b64f45}.allocation-breakdown-investment .allocation-breakdown-fill.investment-negative{background:#cf715b}.allocation-breakdown-investment .allocation-breakdown-fill.investment-positive{background:#527da8}
 
+
+
+/* Multi-exchange crypto account controls */
+.crypto-exchange-select-label{display:grid;gap:6px;margin:0 0 12px;color:#56675d;font-size:12px;font-weight:650}.crypto-exchange-select-label select{width:100%;min-height:40px;padding:8px 11px;border:1px solid #dfe6e0;border-radius:9px;background:#fff;color:#263d32;font:13px var(--font)}.binance-credential-form [hidden]{display:none!important}.binance-credential-form textarea{width:100%;min-height:104px;padding:10px;border:1px solid #dfe6e0;border-radius:8px;background:#fff;color:#283e33;font:12px ui-monospace,Consolas,monospace;resize:vertical}.crypto-credential-links{font-size:11px}.crypto-credential-links a{color:#2f7157;text-decoration:underline;text-underline-offset:2px}.crypto-field-name{display:block}.crypto-sync-heading .connection-logo{display:grid;place-items:center;font-size:18px;font-weight:800}
