@@ -462,6 +462,7 @@
     const normalized=value=>String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
     const parseAmount=raw=>{const source=String(raw||'').trim();const negative=/^[-−(]/.test(source);let value=source.replace(/R\$/gi,'').replace(/[\s()]/g,'').replace(/^[-−]/,'');if(value.includes(','))value=value.replace(/\./g,'').replace(',','.');const amount=Number(value);return Number.isFinite(amount)?(negative?-Math.abs(amount):Math.abs(amount)):0;};
     const invoiceTotalPattern=/(?:total\s+(?:(?:da|de|desta|do)\s+)?fatura|valor\s+total\s+(?:da\s+)?fatura|total\s+a\s+pagar|total\s+geral)/;
+    const nonPurchasePattern=/\b(?:pag\s+boleto|pagamento\s+(?:de\s+)?(?:fatura|boleto)|pagto\s+(?:da\s+)?fatura|pgto\s+(?:da\s+)?fatura)\b/;
     // Aceita linhas DD/MM DESCRIÇÃO VALOR e encerra no primeiro valor monetário.
     const transactionLinePattern=/^\s*(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\s+(.+?)\s+((?:R\$\s*)?[-−]?\s*\(?\d+(?:\.\d{3})*,\d{2}\)?)(?:\s*([-−]))?(?=\s|$)/;
     const output=[];
@@ -479,7 +480,7 @@
       const validDate=new Date(Date.UTC(year,month-1,day));
       if(validDate.getUTCFullYear()!==year||validDate.getUTCMonth()!==month-1||validDate.getUTCDate()!==day)continue;
       const cleanDescription=description.replace(/[|•·]+/g,' ').replace(/\s+/g,' ').trim();
-      if(!/[A-Za-zÀ-ÿ]/.test(cleanDescription))continue;
+      if(!/[A-Za-zÀ-ÿ]/.test(cleanDescription)||nonPurchasePattern.test(normalized(cleanDescription)))continue;
       output.push({id:`pdf-${Date.now()}-${Math.random()}`,date:`${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`,description:cleanDescription,category:'Fatura de cartão',amount:Math.abs(signedAmount),type:signedAmount<0?'income':'expense',createdAt:Date.now()});
     }
     output.sort((a,b)=>b.date.localeCompare(a.date)||a.description.localeCompare(b.description,'pt-BR'));
