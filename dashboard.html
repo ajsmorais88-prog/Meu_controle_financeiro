@@ -69,7 +69,7 @@
     </section>
     <section id="cardsView" class="cards-view" role="tabpanel" aria-labelledby="cardsTab" hidden>
       <div class="fixed-intro"><div><p class="eyebrow">ACOMPANHAMENTO DE COMPRAS</p><h1>Seus cartões,<br><em>compra por compra.</em></h1><p class="subheading">Confira o limite e as compras de cada cartão por mês.</p></div><div class="card-view-actions"><label class="month-filter">Mês da fatura<input id="cardMonthFilter" type="month"></label><label class="month-filter">Cartão da fatura<select id="statementCardId"><option value="">Selecione um cartão</option></select></label><button class="button button-outline" id="importCardStatement" type="button">⇧ Importar fatura</button><input id="cardStatementFile" type="file" accept=".csv,.ofx,.txt,.pdf,application/pdf" hidden><button class="button button-dark" id="addCard">＋ Cadastrar cartão</button></div></div>
-      <p class="panel-copy card-import-help">Importe CSV, OFX ou PDF da fatura selecionada. As linhas serão vinculadas ao cartão e ao mês escolhido; o PDF é processado neste dispositivo.</p>
+      <p class="panel-copy card-import-help">Importe CSV, OFX ou PDF da fatura selecionada. O PDF é processado neste dispositivo; depois, confira se a soma dos lançamentos bate com o total da fatura.</p>
       <section class="panel cards-panel"><div class="panel-heading"><div><p class="eyebrow">MEIOS DE PAGAMENTO</p><h2>Cartões cadastrados</h2></div></div><p class="panel-copy">Veja o limite comprometido pela fatura atual e pelas parcelas futuras, além do saldo disponível.</p><div class="cards-list" id="cardsList"></div><div class="empty-state cards-empty" id="cardsEmpty"><span>▱</span><p>Nenhum cartão cadastrado.</p><small>Cadastre um cartão para acompanhar os gastos.</small></div></section>
       <article class="panel card-projection-panel"><div class="panel-heading"><div><p class="eyebrow">PLANEJAMENTO DE FATURAS</p><h2>Despesas futuras por cartão</h2></div><span class="week-tag">Próximos 6 meses</span></div><p class="panel-copy">Veja em quais meses as compras e parcelas registradas devem entrar nas faturas de cada cartão.</p><div id="cardProjectionLegend" class="card-projection-legend"></div><div id="cardProjectionChart" class="card-projection-chart" role="img" aria-label="Gráfico de despesas futuras por mês e cartão"></div><div id="cardProjectionEmpty" class="card-projection-empty" hidden></div></article>
       <div id="cardPurchasesList" class="card-purchases-list"></div>
@@ -101,3 +101,4 @@
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 </body>
 </html>
+

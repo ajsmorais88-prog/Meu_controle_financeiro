@@ -234,15 +234,37 @@
   function renderCardPurchases(){
     const container=$('#cardPurchasesList');container.replaceChildren();const selectedMonth=$('#cardMonthFilter').value||monthKey(today);
     for(const card of cards){
-      const purchases=transactions.filter(t=>String(t.cardId)===String(card.id)&&t.type==='expense').flatMap(t=>cardPaymentSchedule(t,card)).filter(payment=>payment.monthKey===selectedMonth).sort((a,b)=>b.transaction.date.localeCompare(a.transaction.date));
-      const total=purchases.reduce((sum,payment)=>sum+payment.amount,0);const group=document.createElement('article');group.className='panel card-purchase-group';
-      const heading=document.createElement('div');heading.className='card-purchase-heading';const title=document.createElement('div');const cardName=document.createElement('h2');cardName.textContent=card.name;const due=document.createElement('span');due.className='card-detail';due.textContent=`Fecha dia ${cardClosingDay(card)} · Vencimento dia ${card.dueDay} · Limite ${money(card.limit)}`;title.append(cardName,due);const monthTotal=document.createElement('div');monthTotal.className='card-month-total';const totalLabel=document.createElement('span');totalLabel.textContent=`Fatura · ${new Intl.DateTimeFormat('pt-BR',{month:'long',year:'numeric'}).format(new Date(`${selectedMonth}-02T12:00:00`))}`;const totalValue=document.createElement('strong');totalValue.textContent=money(total);monthTotal.append(totalLabel,totalValue);heading.append(title,monthTotal);group.append(heading);
-      if(purchases.length){const table=document.createElement('div');table.className='purchase-rows';for(const payment of purchases){const purchase=payment.transaction;const row=document.createElement('div');row.className='purchase-row';const info=document.createElement('div');info.className='purchase-description';const description=document.createElement('strong');description.textContent=purchase.description;const meta=document.createElement('span');const dateText=new Intl.DateTimeFormat('pt-BR',{day:'2-digit',month:'short',year:'numeric'}).format(parseDate(purchase.date)).replace('.','');const parts=[purchase.category,dateText];if(payment.installmentCount>1)parts.push(`Parcela ${payment.installmentIndex}/${payment.installmentCount}`);meta.textContent=parts.join(' · ');info.append(description,meta);const amount=document.createElement('strong');amount.className='purchase-amount';amount.textContent=money(payment.amount);const actions=document.createElement('div');actions.className='transaction-actions';const edit=document.createElement('button');edit.type='button';edit.className='row-action';edit.textContent='Editar';edit.addEventListener('click',()=>openEdit(purchase.id));const remove=document.createElement('button');remove.type='button';remove.className='row-action row-delete';remove.textContent='Apagar';remove.addEventListener('click',()=>deleteTransaction(purchase.id));actions.append(edit,remove);row.append(info,amount,actions);table.append(row);}group.append(table);}else{const empty=document.createElement('p');empty.className='card-month-empty';empty.textContent='Nenhuma compra ou parcela prevista para este mês.';group.append(empty);}
+      const cardTransactions=transactions.filter(t=>String(t.cardId)===String(card.id));
+      const purchases=cardTransactions.flatMap(transaction=>{
+        if(transaction.statementBatchId&&String(transaction.statementMonth)===selectedMonth)return[{transaction,installmentIndex:1,installmentCount:1,monthKey:selectedMonth,amount:(transaction.type==='income'?-1:1)*Math.abs(Number(transaction.amount)||0)}];
+        if(transaction.type!=='expense')return[];
+        return cardPaymentSchedule(transaction,card);
+      }).filter(payment=>payment.monthKey===selectedMonth).sort((a,b)=>b.transaction.date.localeCompare(a.transaction.date));
+      const total=purchases.reduce((sum,payment)=>sum+payment.amount,0),group=document.createElement('article');group.className='panel card-purchase-group';
+      const heading=document.createElement('div');heading.className='card-purchase-heading';const title=document.createElement('div');const cardName=document.createElement('h2');cardName.textContent=card.name;const due=document.createElement('span');due.className='card-detail';due.textContent=`Fecha dia ${cardClosingDay(card)} · Vencimento dia ${card.dueDay} · Limite ${money(card.limit)}`;title.append(cardName,due);
+      const monthTotal=document.createElement('div');monthTotal.className='card-month-total';const totalLabel=document.createElement('span');totalLabel.textContent=`Fatura · ${new Intl.DateTimeFormat('pt-BR',{month:'long',year:'numeric'}).format(new Date(`${selectedMonth}-02T12:00:00`))}`;const totalValue=document.createElement('strong');totalValue.textContent=money(total);monthTotal.append(totalLabel,totalValue);heading.append(title,monthTotal);group.append(heading);
+      const batches=new Map();for(const transaction of cardTransactions){if(transaction.statementBatchId&&String(transaction.statementMonth)===selectedMonth)batches.set(transaction.statementBatchId,transaction);}
+      for(const transaction of batches.values()){
+        if(transaction.statementFormat!=='pdf')continue;
+        const check=document.createElement('div');const invoiceTotal=Number(transaction.statementInvoiceTotal),importedTotal=Number(transaction.statementImportedTotal);
+        if(Number.isFinite(invoiceTotal)){const difference=invoiceTotal-importedTotal;const matches=Math.abs(difference)<=0.01;check.className=`card-invoice-check ${matches?'is-match':'is-mismatch'}`;check.textContent=matches?`Conferência da fatura PDF: bateu · Total ${money(invoiceTotal)} · Lançamentos ${money(importedTotal)}`:`Conferência da fatura PDF: não bateu · Total ${money(invoiceTotal)} · Lançamentos ${money(importedTotal)} · Diferença ${money(Math.abs(difference))}`;}
+        else{check.className='card-invoice-check is-unknown';check.textContent=`Não localizei o total da fatura no PDF · Soma dos lançamentos identificados: ${money(importedTotal)}`;}
+        group.append(check);
+      }
+      if(purchases.length){
+        const table=document.createElement('div');table.className='purchase-rows';
+        for(const payment of purchases){
+          const purchase=payment.transaction,row=document.createElement('div');row.className='purchase-row';const info=document.createElement('div');info.className='purchase-description';const description=document.createElement('strong');description.textContent=purchase.description;const meta=document.createElement('span');
+          const dateText=new Intl.DateTimeFormat('pt-BR',{day:'2-digit',month:'short',year:'numeric'}).format(parseDate(purchase.date)).replace('.','');const parts=[purchase.category,dateText];if(payment.installmentCount>1)parts.push(`Parcela ${payment.installmentIndex}/${payment.installmentCount}`);if(purchase.type==='income'&&purchase.statementBatchId)parts.push('Estorno/crédito');meta.textContent=parts.join(' · ');info.append(description,meta);
+          const amount=document.createElement('strong');amount.className=`purchase-amount ${payment.amount<0?'purchase-credit':''}`;amount.textContent=payment.amount<0?`− ${money(Math.abs(payment.amount))}`:money(payment.amount);
+          const actions=document.createElement('div');actions.className='transaction-actions';const edit=document.createElement('button');edit.type='button';edit.className='row-action';edit.textContent='Editar';edit.addEventListener('click',()=>openEdit(purchase.id));const remove=document.createElement('button');remove.type='button';remove.className='row-action row-delete';remove.textContent='Apagar';remove.addEventListener('click',()=>deleteTransaction(purchase.id));actions.append(edit,remove);row.append(info,amount,actions);table.append(row);
+        }
+        group.append(table);
+      }else{const empty=document.createElement('p');empty.className='card-month-empty';empty.textContent='Nenhuma compra ou parcela prevista para este mês.';group.append(empty);}
       container.append(group);
     }
     $('#cardPurchasesEmpty').hidden=cards.length>0;
-  }
-  function renderCardProjection(){
+  }  function renderCardProjection(){
     const legend=$('#cardProjectionLegend');const chart=$('#cardProjectionChart');const empty=$('#cardProjectionEmpty');legend.replaceChildren();chart.replaceChildren();empty.hidden=true;
     if(!cards.length){empty.hidden=false;empty.textContent='Cadastre um cartão e registre compras para visualizar as despesas futuras.';return;}
     const palette=['#245b48','#d17d52','#527da8','#9a6ab0','#c39b35','#3d9b9a','#b75b68','#78845a'];const cardSeries=cards.map((card,index)=>({card,color:palette[index%palette.length]}));
@@ -415,9 +437,70 @@
   function statementBatchId(source,cardId,selectedMonth){let hash=2166136261;if(source instanceof Uint8Array){for(const byte of source)hash=Math.imul(hash^byte,16777619);}else{for(let index=0;index<source.length;index++)hash=Math.imul(hash^source.charCodeAt(index),16777619);}return`statement-${(hash>>>0).toString(16)}-${cardId}-${selectedMonth}`;}
   let pdfjsLibraryPromise;
   function loadPDFJS(){if(!pdfjsLibraryPromise)pdfjsLibraryPromise=import('/vendor/pdfjs/pdf.min.mjs').then(pdfjs=>{pdfjs.GlobalWorkerOptions.workerSrc='/vendor/pdfjs/pdf.worker.min.mjs';return pdfjs;});return pdfjsLibraryPromise;}
-  async function parsePDFInvoice(bytes,selectedMonth){const pdfjs=await loadPDFJS();const loadingTask=pdfjs.getDocument({data:bytes,useSystemFonts:true});const document=await loadingTask.promise;if(document.numPages>40){await loadingTask.destroy();throw new Error('A fatura PDF tem mais de 40 páginas. Divida o arquivo e importe cada parte.');}const lines=[];for(let pageNumber=1;pageNumber<=document.numPages;pageNumber++){const page=await document.getPage(pageNumber);const content=await page.getTextContent();const grouped=new Map();for(const item of content.items){if(typeof item.str!=='string'||!item.str.trim())continue;const x=Number(item.transform?.[4]||0),y=Number(item.transform?.[5]||0),key=Math.round(y/2)*2;if(!grouped.has(key))grouped.set(key,{y,items:[]});grouped.get(key).items.push({x,text:item.str});}for(const line of [...grouped.values()].sort((a,b)=>b.y-a.y)){const text=line.items.sort((a,b)=>a.x-b.x).map(item=>item.text).join(' ').replace(/\s+/g,' ').trim();if(text)lines.push(text);}page.cleanup();}await loadingTask.destroy();const output=[];const amountPattern=/(?:R\$\s*)?[-−]?\s*\(?\d+(?:[.\s]\d{3})*(?:,\d{2}|\.\d{2})\)?/g;for(const line of lines){const dateMatch=line.match(/\b(\d{1,2})[/.](\d{1,2})(?:[/.](\d{2,4}))?\b/);if(!dateMatch)continue;const amounts=[...line.matchAll(amountPattern)];if(!amounts.length)continue;const amountMatch=amounts[amounts.length-1];let amountText=amountMatch[0].replace(/R\$/gi,'').replace(/[\s()]/g,'');const negative=/^[-−]/.test(amountText);amountText=amountText.replace(/^[-−]/,'');if(amountText.includes(','))amountText=amountText.replace(/\./g,'').replace(',','.');const amount=Number(amountText);if(!Number.isFinite(amount)||amount<=0)continue;const day=Number(dateMatch[1]),month=Number(dateMatch[2]);let year=Number(dateMatch[3]||selectedMonth.slice(0,4));if(year<100)year+=year<70?2000:1900;const validDate=new Date(Date.UTC(year,month-1,day));if(validDate.getUTCFullYear()!==year||validDate.getUTCMonth()!==month-1||validDate.getUTCDate()!==day)continue;let description=(line.slice(0,amountMatch.index)+' '+line.slice(amountMatch.index+amountMatch[0].length)).replace(dateMatch[0],'').replace(/[|•·]+/g,' ').replace(/\s+/g,' ').trim();if(!description||/^(total|subtotal|fatura|vencimento|pagamento|saldo anterior)\b/i.test(description))continue;output.push({id:`pdf-${Date.now()}-${Math.random()}`,date:`${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`,description,category:'Fatura de cartão',amount,type:negative?'income':'expense',createdAt:Date.now()});}return output;}
-  async function importCardStatement(file){const cardId=$('#statementCardId').value;const card=cards.find(item=>String(item.id)===String(cardId));if(!card){showToast('Selecione o cartão da fatura antes de importar.');return;}if(file.size>20*1024*1024)throw new Error('O arquivo excede o limite de 20 MB.');const selectedMonth=$('#cardMonthFilter').value||monthKey(today);const bytes=new Uint8Array(await file.arrayBuffer());const isPdf=/\.pdf$/i.test(file.name)||bytes[0]===0x25&&bytes[1]===0x50&&bytes[2]===0x44&&bytes[3]===0x46;const text=isPdf?'':await readStatementText(file);const source=isPdf?bytes:text;const batchId=statementBatchId(source,card.id,selectedMonth);if(transactions.some(item=>item.statementBatchId===batchId)){showToast('Esta fatura já foi importada para este cartão e mês.');return;}let parsed;if(isPdf){parsed=await parsePDFInvoice(bytes,selectedMonth);}else parsed=/\.ofx$/i.test(file.name)||/<OFX>/i.test(text)?parseOFX(text):parseCSV(text,{cardStatement:true});if(!parsed.length){showToast(isPdf?'Não encontrei compras com data e valor no PDF. PDFs escaneados ou protegidos por senha não podem ser lidos; tente um PDF com texto ou exporte CSV/OFX.':'Não encontrei compras com data e valor. Confira se o CSV tem cabeçalho Data e Valor, ou Data, Crédito e Débito.');return;}const imported=parsed.map(item=>({...item,type:item.type==='income'?'income':'expense',category:item.category&&item.category!=='Importado'?item.category:'Fatura de cartão',paymentMethod:'cartao',cardId:String(card.id),installments:1,statementMonth:selectedMonth,statementBatchId:batchId}));transactions.push(...imported);saveTransactions();render();showToast(`${imported.length} lançamentos importados para a fatura de ${new Intl.DateTimeFormat('pt-BR',{month:'long',year:'numeric'}).format(new Date(`${selectedMonth}-02T12:00:00`))}.`);}
-  function parseCSV(text,{cardStatement=false}={}){
+  async function parsePDFInvoice(bytes,selectedMonth){
+    const pdfjs=await loadPDFJS(),loadingTask=pdfjs.getDocument({data:bytes,useSystemFonts:true});
+    let invoiceTotal=null;
+    const lines=[];
+    try{
+      const document=await loadingTask.promise;
+      if(document.numPages>40)throw new Error('A fatura PDF tem mais de 40 páginas. Divida o arquivo e importe cada parte.');
+      for(let pageNumber=1;pageNumber<=document.numPages;pageNumber++){
+        const page=await document.getPage(pageNumber),content=await page.getTextContent(),grouped=new Map();
+        for(const item of content.items){
+          if(typeof item.str!=='string'||!item.str.trim())continue;
+          const x=Number(item.transform?.[4]||0),y=Number(item.transform?.[5]||0),key=Math.round(y/2)*2;
+          if(!grouped.has(key))grouped.set(key,{y,items:[]});
+          grouped.get(key).items.push({x,text:item.str});
+        }
+        for(const line of [...grouped.values()].sort((a,b)=>b.y-a.y)){
+          const text=line.items.sort((a,b)=>a.x-b.x).map(item=>item.text).join(' ').replace(/\s+/g,' ').trim();
+          if(text)lines.push(text);
+        }
+        page.cleanup();
+      }
+    }finally{await loadingTask.destroy().catch(()=>{});}
+    const amountPattern=/(?:R\$\s*)?[-−]?\s*\(?\d+(?:[.\s]\d{3})*(?:,\d{2}|\.\d{2})\)?/g;
+    const normalized=value=>String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+    const parseAmount=raw=>{const source=String(raw||'').trim();const negative=/^[-−(]/.test(source);let value=source.replace(/R\$/gi,'').replace(/[\s()]/g,'').replace(/^[-−]/,'');if(value.includes(','))value=value.replace(/\./g,'').replace(',','.');const amount=Number(value);return Number.isFinite(amount)?(negative?-Math.abs(amount):Math.abs(amount)):0;};
+    const invoiceTotalPattern=/(?:total\s+(?:(?:da|de|desta|do)\s+)?fatura|valor\s+total\s+(?:da\s+)?fatura|total\s+a\s+pagar|total\s+geral)/;
+    const excludedLinePattern=/\b(saldo anterior|pagamento (?:da fatura|minimo|efetuado|recebido)|pagto (?:da fatura|efetuado|recebido)|vencimento|limite (?:total|disponivel)|resumo|subtotal|melhor dia|valor minimo|fatura anterior|total da fatura|total a pagar|pontos|data de fechamento)\b/;
+    const output=[];
+    for(const line of lines){
+      const plain=normalized(line);
+      const matches=[...line.matchAll(amountPattern)];
+      if(invoiceTotalPattern.test(plain)&&!/(fatura anterior|saldo anterior)/.test(plain)&&matches.length){invoiceTotal=Math.abs(parseAmount(matches[matches.length-1][0]));continue;}
+      const dateMatch=line.match(/\b(\d{1,2})[/.](\d{1,2})(?:[/.](\d{2,4}))?\b/);
+      if(!dateMatch||!matches.length)continue;
+      const amountMatch=matches[matches.length-1],signedAmount=parseAmount(amountMatch[0]);
+      if(!signedAmount)continue;
+      const day=Number(dateMatch[1]),month=Number(dateMatch[2]);
+      let year=Number(dateMatch[3]||selectedMonth.slice(0,4));
+      if(year<100)year+=year<70?2000:1900;
+      const validDate=new Date(Date.UTC(year,month-1,day));
+      if(validDate.getUTCFullYear()!==year||validDate.getUTCMonth()!==month-1||validDate.getUTCDate()!==day)continue;
+      const description=(line.slice(0,amountMatch.index)+' '+line.slice(amountMatch.index+amountMatch[0].length)).replace(dateMatch[0],'').replace(/[|•·]+/g,' ').replace(/\s+/g,' ').trim();
+      if(!/[A-Za-zÀ-ÿ]/.test(description)||excludedLinePattern.test(normalized(description)))continue;
+      output.push({id:`pdf-${Date.now()}-${Math.random()}`,date:`${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`,description,category:'Fatura de cartão',amount:Math.abs(signedAmount),type:signedAmount<0?'income':'expense',createdAt:Date.now()});
+    }
+    return{transactions:output,invoiceTotal};
+  }  async function importCardStatement(file){
+    const cardId=$('#statementCardId').value,card=cards.find(item=>String(item.id)===String(cardId));
+    if(!card){showToast('Selecione o cartão da fatura antes de importar.');return;}
+    if(file.size>20*1024*1024)throw new Error('O arquivo excede o limite de 20 MB.');
+    const selectedMonth=$('#cardMonthFilter').value||monthKey(today),bytes=new Uint8Array(await file.arrayBuffer());
+    const isPdf=/\.pdf$/i.test(file.name)||bytes[0]===0x25&&bytes[1]===0x50&&bytes[2]===0x44&&bytes[3]===0x46;
+    const text=isPdf?'':await readStatementText(file),source=isPdf?bytes:text,batchId=statementBatchId(source,card.id,selectedMonth);
+    let parsed=[],invoiceTotal=null;
+    if(isPdf){const extraction=await parsePDFInvoice(bytes,selectedMonth);parsed=extraction.transactions;invoiceTotal=extraction.invoiceTotal;}
+    else parsed=/\.ofx$/i.test(file.name)||/<OFX>/i.test(text)?parseOFX(text):parseCSV(text,{cardStatement:true});
+    if(!parsed.length){showToast(isPdf?'Não encontrei lançamentos de compra com data e valor no PDF. Pagamentos, totais e saldos são ignorados; PDFs escaneados ou protegidos por senha não podem ser lidos.':'Não encontrei compras com data e valor. Confira se o CSV tem cabeçalho Data e Valor, ou Data, Crédito e Débito.');return;}
+    const importedTotal=parsed.reduce((sum,item)=>sum+(item.type==='income'?-1:1)*(Number(item.amount)||0),0);
+    const imported=parsed.map(item=>({...item,category:item.category&&item.category!=='Importado'?item.category:'Fatura de cartão',paymentMethod:'cartao',cardId:String(card.id),installments:1,statementMonth:selectedMonth,statementBatchId:batchId,statementInvoiceTotal:invoiceTotal,statementImportedTotal:importedTotal,statementFormat:isPdf?'pdf':/\.ofx$/i.test(file.name)?'ofx':'csv'}));
+    transactions=transactions.filter(item=>item.statementBatchId!==batchId);
+    transactions.push(...imported);saveTransactions();render();
+    const result=invoiceTotal===null?'Total da fatura não identificado no arquivo.':Math.abs(invoiceTotal-importedTotal)<=0.01?'A soma dos lançamentos bate com o total da fatura.':`Diferença de ${money(Math.abs(invoiceTotal-importedTotal))} entre lançamentos e fatura.`;
+    showToast(`${imported.length} lançamentos importados. ${result}`);
+  }  function parseCSV(text,{cardStatement=false}={}){
     text=String(text||'').replace(/^\uFEFF/,'').replace(/\u0000/g,'');
     const normalize=value=>String(value||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[():]/g,' ').replace(/\s+/g,' ').trim();
     const parseRows=delimiter=>{const rows=[];let row=[],cell='',quoted=false;for(let i=0;i<text.length;i++){const c=text[i];if(c==='"'&&quoted&&text[i+1]==='"'){cell+='"';i++;}else if(c==='"'){quoted=!quoted;}else if(c===delimiter&&!quoted){row.push(cell);cell='';}else if((c==='\n'||c==='\r')&&!quoted){if(c==='\r'&&text[i+1]==='\n')i++;row.push(cell);if(row.some(x=>x.trim()))rows.push(row);row=[];cell='';}else cell+=c;}row.push(cell);if(row.some(x=>x.trim()))rows.push(row);return rows;};
@@ -457,3 +540,4 @@
   render();
   fetch('/api/session',{cache:'no-store'}).then(response=>response.ok?response.json():null).then(session=>{if(!session?.username)return;const name=String(session.username).trim();if(!name)return;$('#greetingName').textContent=`${name.charAt(0).toLocaleUpperCase('pt-BR')}${name.slice(1)}!`;}).catch(()=>{});
 })();
+
