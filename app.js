@@ -370,7 +370,7 @@
     for(const field of document.querySelectorAll('[data-crypto-field]')){const name=field.dataset.cryptoField;const label=spec.fields[name];field.hidden=!label;const input=field.querySelector('input,textarea');input.required=Boolean(label);input.value='';if(label)field.querySelector('.crypto-field-name').textContent=label;}
     loadCryptoCredentialStatus();renderCryptoPortfolio();
   }
-  $('#cryptoExchangeSelect').addEventListener('change',()=>{if(syncedBinance){syncedBinance.selectedExchange=selectedCryptoExchange();localStorage.setItem(BINANCE_BALANCES_KEY,JSON.stringify(syncedBinance));}updateCryptoExchangeForm();});
+  $('#cryptoExchangeSelect').addEventListener('change',()=>{if(!syncedBinance)syncedBinance={balances:[],exchanges:{}};syncedBinance.selectedExchange=selectedCryptoExchange();localStorage.setItem(BINANCE_BALANCES_KEY,JSON.stringify(syncedBinance));updateCryptoExchangeForm();});
   $('#refreshCryptoQuotes').addEventListener('click',async()=>{await Promise.all([updateCryptoQuoteRows(getCryptoPositions(),true),updateCryptoQuoteRows(investments.filter(item=>item.kind==='Criptoativos'),true,false)]);await renderInvestmentAllocation();});
   $('#syncBinance').addEventListener('click',syncCryptoExchangeAccount);
   $('#binanceCredentialForm').addEventListener('submit',async event=>{
