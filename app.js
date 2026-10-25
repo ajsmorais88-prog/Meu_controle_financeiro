@@ -463,15 +463,15 @@
     const parseAmount=raw=>{const source=String(raw||'').trim();const negative=/^[-−(]/.test(source);let value=source.replace(/R\$/gi,'').replace(/[\s()]/g,'').replace(/^[-−]/,'');if(value.includes(','))value=value.replace(/\./g,'').replace(',','.');const amount=Number(value);return Number.isFinite(amount)?(negative?-Math.abs(amount):Math.abs(amount)):0;};
     const invoiceTotalPattern=/(?:total\s+(?:(?:da|de|desta|do)\s+)?fatura|valor\s+total\s+(?:da\s+)?fatura|total\s+a\s+pagar|total\s+geral)/;
     // Aceita linhas DD/MM DESCRIÇÃO VALOR e encerra no primeiro valor monetário.
-    const transactionLinePattern=/^\s*(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\s+(.+?)\s+((?:R\$\s*)?[-−]?\s*\(?\d+(?:\.\d{3})*,\d{2}\)?)(?=\s|$)/;
+    const transactionLinePattern=/^\s*(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\s+(.+?)\s+((?:R\$\s*)?[-−]?\s*\(?\d+(?:\.\d{3})*,\d{2}\)?)(?:\s*([-−]))?(?=\s|$)/;
     const output=[];
     for(const line of lines){
       const plain=normalized(line);
       if(invoiceTotalPattern.test(plain)&&!/(fatura anterior|saldo anterior)/.test(plain)){const totalMatch=line.match(/(?:R\$\s*)?[-−]?\s*\(?\d+(?:[.\s]\d{3})*(?:,\d{2}|\.\d{2})\)?/g);if(totalMatch?.length)invoiceTotal=Math.abs(parseAmount(totalMatch[totalMatch.length-1]));continue;}
       const transactionMatch=line.match(transactionLinePattern);
       if(!transactionMatch)continue;
-      const [,dayText,monthText,yearText,description,signedAmountText]=transactionMatch;
-      const signedAmount=parseAmount(signedAmountText);
+      const [,dayText,monthText,yearText,description,signedAmountText,trailingSign]=transactionMatch;
+      const signedAmount=trailingSign?-Math.abs(parseAmount(signedAmountText)):parseAmount(signedAmountText);
       if(!signedAmount)continue;
       const day=Number(dayText),month=Number(monthText);
       let year=Number(yearText||selectedMonth.slice(0,4));
@@ -482,6 +482,7 @@
       if(!/[A-Za-zÀ-ÿ]/.test(cleanDescription))continue;
       output.push({id:`pdf-${Date.now()}-${Math.random()}`,date:`${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`,description:cleanDescription,category:'Fatura de cartão',amount:Math.abs(signedAmount),type:signedAmount<0?'income':'expense',createdAt:Date.now()});
     }
+    output.sort((a,b)=>b.date.localeCompare(a.date)||a.description.localeCompare(b.description,'pt-BR'));
     return{transactions:output,invoiceTotal};
   }  async function importCardStatement(file){
     const cardId=$('#statementCardId').value,card=cards.find(item=>String(item.id)===String(cardId));
