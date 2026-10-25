@@ -96,3 +96,5 @@ dialog{border-radius:18px;box-shadow:0 24px 80px #102c2438}dialog form{padding:2
 
 .credit-card-title{justify-content:flex-start}.credit-card-title strong{margin-right:auto}.credit-card-title .row-action{flex:0 0 auto}
 
+.scheduled-cost-value label{display:grid;gap:4px;color:#77847c;font-size:10px;white-space:nowrap}.scheduled-cost-input{width:112px;max-width:100%;padding:7px 8px;border:1px solid #dfe6e0;border-radius:7px;background:#fff;color:#283e33;font:12px var(--font)}.scheduled-cost-input:focus{outline:2px solid #b9d6c2;outline-offset:1px}@media(max-width:520px){.scheduled-cost-input{width:96px}}
+
