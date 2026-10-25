@@ -119,7 +119,7 @@
     const nextMonth=monthKey(new Date(today.getFullYear(),today.getMonth()+1,1));
     const scheduledCardTotal=period=>transactions.filter(t=>t.type==='expense'&&(t.paymentMethod==='cartao'||t.cardId)).reduce((sum,t)=>{const card=cards.find(item=>String(item.id)===String(t.cardId));return sum+cardPaymentSchedule(t,card).filter(payment=>payment.monthKey===period).reduce((monthSum,payment)=>monthSum+payment.amount,0);},0);
     const currentCardInvoice=scheduledCardTotal(currentMonth),nextMonthCardExpenses=scheduledCardTotal(nextMonth);
-    budget=Math.max(0,monthlyIncome*0.4-currentCardInvoice-nextMonthCardExpenses)/4;
+    budget=Math.max(0,(monthlyIncome*0.4-nextMonthCardExpenses)/4);
     $('#plannedValue').textContent=money(budget); $('#spentValue').textContent=money(realizedExpense);
     const currentMonthInvestments=investments.filter(item=>String(item.date||'').slice(0,7)===currentMonth&&(item.movement||'contribution')==='contribution').reduce((sum,item)=>sum+Number(item.amount||0),0);
     renderFinancialAlerts(currentCardInvoice);
