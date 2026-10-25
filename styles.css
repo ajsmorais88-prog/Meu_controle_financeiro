@@ -106,3 +106,5 @@ dialog{border-radius:18px;box-shadow:0 24px 80px #102c2438}dialog form{padding:2
 
 .scheduled-costs-overview{margin-top:14px}.scheduled-costs-overview .panel-heading{margin-bottom:8px}.scheduled-costs-overview .scheduled-costs-empty{padding:12px 0 2px}
 
+.allocation-breakdown-amount.negative{color:#b64f45}.allocation-breakdown-investment .allocation-breakdown-fill.investment-negative{background:#cf715b}.allocation-breakdown-investment .allocation-breakdown-fill.investment-positive{background:#527da8}
+
