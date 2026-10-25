@@ -806,13 +806,13 @@ async function signedBinanceAccount(apiKey, apiSecret) {
 }
 
 async function serveStatic(req, res, pathname) {
-  const allowed = new Map([['/', 'dashboard.html'], ['/index.html', 'dashboard.html'], ['/app.js', 'app.js'], ['/styles.css', 'styles.css']]);
+  const allowed = new Map([['/', 'dashboard.html'], ['/index.html', 'dashboard.html'], ['/app.js', 'app.js'], ['/styles.css', 'styles.css'], ['/vendor/pdfjs/pdf.min.mjs', 'vendor/pdfjs/pdf.min.mjs'], ['/vendor/pdfjs/pdf.worker.min.mjs', 'vendor/pdfjs/pdf.worker.min.mjs']]);
   const filename = allowed.get(pathname);
   if (!filename) { res.writeHead(404); res.end('Not found'); return; }
   const filePath = path.join(ROOT, filename);
   try {
     const content = await readFile(filePath);
-    const type = filename.endsWith('.html') ? 'text/html; charset=utf-8' : filename.endsWith('.js') ? 'text/javascript; charset=utf-8' : 'text/css; charset=utf-8';
+    const type = filename.endsWith('.html') ? 'text/html; charset=utf-8' : filename.endsWith('.js') || filename.endsWith('.mjs') ? 'text/javascript; charset=utf-8' : 'text/css; charset=utf-8';
     res.writeHead(200, { 'Content-Type': type, ...securityHeaders() });
     res.end(content);
   } catch { res.writeHead(404); res.end('Not found'); }

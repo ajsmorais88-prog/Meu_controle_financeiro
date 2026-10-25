@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.2.0",
-    "@vercel/functions": "3.6.1"
+    "@vercel/functions": "3.6.1",
+    "pdfjs-dist": "6.4.299"
   }
 }
-
