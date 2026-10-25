@@ -462,8 +462,8 @@
     const normalized=value=>String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
     const parseAmount=raw=>{const source=String(raw||'').trim();const negative=/^[-−(]/.test(source);let value=source.replace(/R\$/gi,'').replace(/[\s()]/g,'').replace(/^[-−]/,'');if(value.includes(','))value=value.replace(/\./g,'').replace(',','.');const amount=Number(value);return Number.isFinite(amount)?(negative?-Math.abs(amount):Math.abs(amount)):0;};
     const invoiceTotalPattern=/(?:total\s+(?:(?:da|de|desta|do)\s+)?fatura|valor\s+total\s+(?:da\s+)?fatura|total\s+a\s+pagar|total\s+geral)/;
-    // Aceita somente linhas no formato DD/MM DESCRIÇÃO VALOR (ex.: 20/10 DROGASIL 3037 MANAUS 22,45).
-    const transactionLinePattern=/^\s*(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\s+(.+?)\s+((?:R\$\s*)?[-−]?\s*\(?\d+(?:\.\d{3})*,\d{2}\)?)\s*$/;
+    // Aceita linhas DD/MM DESCRIÇÃO VALOR e encerra no primeiro valor monetário.
+    const transactionLinePattern=/^\s*(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\s+(.+?)\s+((?:R\$\s*)?[-−]?\s*\(?\d+(?:\.\d{3})*,\d{2}\)?)(?=\s|$)/;
     const output=[];
     for(const line of lines){
       const plain=normalized(line);
