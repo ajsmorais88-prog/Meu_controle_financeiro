@@ -123,7 +123,7 @@
     $('#plannedValue').textContent=money(budget); $('#spentValue').textContent=money(realizedExpense);
     const currentMonthInvestments=investments.filter(item=>String(item.date||'').slice(0,7)===currentMonth&&(item.movement||'contribution')==='contribution').reduce((sum,item)=>sum+Number(item.amount||0),0);
     renderFinancialAlerts(currentCardInvoice);
-    $('#currentCardInvoice').textContent=money(currentCardInvoice); $('#currentMonthInvestment').textContent=money(currentMonthInvestments);    updateAllocationGap('fixedGap',monthlyIncome*0.5,fixedMonthlyTotal(),'limit');
+    $('#currentCardInvoice').textContent=money(currentCardInvoice); $('#nextMonthCardExpenses').textContent=`Despesas futuras em ${new Intl.DateTimeFormat('pt-BR',{month:'long',year:'numeric'}).format(new Date(today.getFullYear(),today.getMonth()+1,2))}: ${money(nextMonthCardExpenses)}`; $('#currentMonthInvestment').textContent=money(currentMonthInvestments);    updateAllocationGap('fixedGap',monthlyIncome*0.5,fixedMonthlyTotal(),'limit');
     updateAllocationGap('cardGap',monthlyIncome*0.4,currentCardInvoice+nextMonthCardExpenses,'limit');
     updateAllocationGap('investmentGap',monthlyIncome*0.1,currentMonthInvestments,'goal');    const percent=budget>0?Math.round(realizedExpense/budget*100):0; const shown=Math.min(percent,100);
     $('#progressFill').style.width=`${shown}%`; $('#progressFill').classList.toggle('over',budget>0&&realizedExpense>budget);
