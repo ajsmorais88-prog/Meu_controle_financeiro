@@ -459,28 +459,28 @@
         page.cleanup();
       }
     }finally{await loadingTask.destroy().catch(()=>{});}
-    const amountPattern=/(?:R\$\s*)?[-−]?\s*\(?\d+(?:[.\s]\d{3})*(?:,\d{2}|\.\d{2})\)?/g;
     const normalized=value=>String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
     const parseAmount=raw=>{const source=String(raw||'').trim();const negative=/^[-−(]/.test(source);let value=source.replace(/R\$/gi,'').replace(/[\s()]/g,'').replace(/^[-−]/,'');if(value.includes(','))value=value.replace(/\./g,'').replace(',','.');const amount=Number(value);return Number.isFinite(amount)?(negative?-Math.abs(amount):Math.abs(amount)):0;};
     const invoiceTotalPattern=/(?:total\s+(?:(?:da|de|desta|do)\s+)?fatura|valor\s+total\s+(?:da\s+)?fatura|total\s+a\s+pagar|total\s+geral)/;
-    const excludedLinePattern=/\b(saldo anterior|pagamento (?:da fatura|minimo|efetuado|recebido)|pagto (?:da fatura|efetuado|recebido)|vencimento|limite (?:total|disponivel)|resumo|subtotal|melhor dia|valor minimo|fatura anterior|total da fatura|total a pagar|pontos|data de fechamento)\b/;
+    // Aceita somente linhas no formato DD/MM DESCRIÇÃO VALOR (ex.: 20/10 DROGASIL 3037 MANAUS 22,45).
+    const transactionLinePattern=/^\s*(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\s+(.+?)\s+((?:R\$\s*)?[-−]?\s*\(?\d+(?:\.\d{3})*,\d{2}\)?)\s*$/;
     const output=[];
     for(const line of lines){
       const plain=normalized(line);
-      const matches=[...line.matchAll(amountPattern)];
-      if(invoiceTotalPattern.test(plain)&&!/(fatura anterior|saldo anterior)/.test(plain)&&matches.length){invoiceTotal=Math.abs(parseAmount(matches[matches.length-1][0]));continue;}
-      const dateMatch=line.match(/\b(\d{1,2})[/.](\d{1,2})(?:[/.](\d{2,4}))?\b/);
-      if(!dateMatch||!matches.length)continue;
-      const amountMatch=matches[matches.length-1],signedAmount=parseAmount(amountMatch[0]);
+      if(invoiceTotalPattern.test(plain)&&!/(fatura anterior|saldo anterior)/.test(plain)){const totalMatch=line.match(/(?:R\$\s*)?[-−]?\s*\(?\d+(?:[.\s]\d{3})*(?:,\d{2}|\.\d{2})\)?/g);if(totalMatch?.length)invoiceTotal=Math.abs(parseAmount(totalMatch[totalMatch.length-1]));continue;}
+      const transactionMatch=line.match(transactionLinePattern);
+      if(!transactionMatch)continue;
+      const [,dayText,monthText,yearText,description,signedAmountText]=transactionMatch;
+      const signedAmount=parseAmount(signedAmountText);
       if(!signedAmount)continue;
-      const day=Number(dateMatch[1]),month=Number(dateMatch[2]);
-      let year=Number(dateMatch[3]||selectedMonth.slice(0,4));
+      const day=Number(dayText),month=Number(monthText);
+      let year=Number(yearText||selectedMonth.slice(0,4));
       if(year<100)year+=year<70?2000:1900;
       const validDate=new Date(Date.UTC(year,month-1,day));
       if(validDate.getUTCFullYear()!==year||validDate.getUTCMonth()!==month-1||validDate.getUTCDate()!==day)continue;
-      const description=(line.slice(0,amountMatch.index)+' '+line.slice(amountMatch.index+amountMatch[0].length)).replace(dateMatch[0],'').replace(/[|•·]+/g,' ').replace(/\s+/g,' ').trim();
-      if(!/[A-Za-zÀ-ÿ]/.test(description)||excludedLinePattern.test(normalized(description)))continue;
-      output.push({id:`pdf-${Date.now()}-${Math.random()}`,date:`${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`,description,category:'Fatura de cartão',amount:Math.abs(signedAmount),type:signedAmount<0?'income':'expense',createdAt:Date.now()});
+      const cleanDescription=description.replace(/[|•·]+/g,' ').replace(/\s+/g,' ').trim();
+      if(!/[A-Za-zÀ-ÿ]/.test(cleanDescription))continue;
+      output.push({id:`pdf-${Date.now()}-${Math.random()}`,date:`${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`,description:cleanDescription,category:'Fatura de cartão',amount:Math.abs(signedAmount),type:signedAmount<0?'income':'expense',createdAt:Date.now()});
     }
     return{transactions:output,invoiceTotal};
   }  async function importCardStatement(file){
