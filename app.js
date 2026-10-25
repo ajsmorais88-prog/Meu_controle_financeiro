@@ -132,8 +132,6 @@
     $('#progressFill').style.width=`${shown}%`; $('#progressFill').classList.toggle('over',budget>0&&realizedExpense>budget);
     $('.progress-track').setAttribute('aria-valuenow',String(shown)); $('#progressPercent').textContent=`${percent}%`;
     $('#remainingLabel').textContent=monthlyIncome<=0?'Defina sua renda mensal':realizedExpense>budget?`Você passou ${money(realizedExpense-budget)} do limite`: `Restam ${money(budget-realizedExpense)} no limite`;
-    const filter=$('#typeFilter').value;
-    const items=inWeek.filter(t=>filter==='all'||t.type===filter).sort((a,b)=>b.date.localeCompare(a.date)||b.createdAt-a.createdAt);
     renderAllTransactions();
     renderCards();
     renderFixedCosts();
@@ -145,18 +143,7 @@
     renderInvestments();
     renderCryptoPortfolio();
     renderInvestmentAllocation();
-    const pendingFixedCount=renderScheduledFixedCosts();
-    const list=$('#transactionList'); list.replaceChildren(); $('#emptyState').hidden=items.length>0||pendingFixedCount>0;
-    for(const t of items.slice(0,8)){
-      const row=document.createElement('div');row.className='transaction-row';
-      const icon=document.createElement('span');icon.className=`transaction-icon ${t.type}`;icon.textContent=t.type==='income'?'↓':'↗';
-      const details=document.createElement('div');const name=document.createElement('div');name.className='transaction-name';name.textContent=t.description;const cardName=cards.find(c=>String(c.id)===String(t.cardId))?.name;const methods={dinheiro:'Dinheiro',pix:'Pix',cartao:'Cartão de crédito',crediario:'Crediário',financiamento:'Financiamento',bradesco:'Bradesco'};const methodLabel=cardName||methods[t.paymentMethod]||(t.cardId?'Cartão de crédito':'');const meta=document.createElement('div');meta.className='transaction-meta';meta.textContent=`${t.category} · ${new Intl.DateTimeFormat('pt-BR',{day:'2-digit',month:'short'}).format(parseDate(t.date)).replace('.','')}${methodLabel?` · ${methodLabel}`:''}`;details.append(name,meta);
-      const amount=document.createElement('div');amount.className=`transaction-amount ${t.type}`;amount.textContent=`${t.type==='income'?'+':'−'} ${money(t.amount)}`;
-      const actions=document.createElement('div');actions.className='transaction-actions';
-      const edit=document.createElement('button');edit.type='button';edit.className='row-action';edit.textContent='Editar';edit.setAttribute('aria-label',`Editar ${t.description}`);edit.addEventListener('click',()=>openEdit(t.id));
-      const remove=document.createElement('button');remove.type='button';remove.className='row-action row-delete';remove.textContent='Apagar';remove.setAttribute('aria-label',`Apagar ${t.description}`);remove.addEventListener('click',()=>deleteTransaction(t.id));
-      actions.append(edit,remove);row.append(icon,details,amount,actions);list.append(row);
-    }
+    renderScheduledFixedCosts();
   }
   function renderAllTransactions(){
     const selectedMonth=$('#transactionsMonthFilter').value||monthKey(today);
@@ -433,7 +420,6 @@
   $('#monthlyIncome').value=monthlyIncome?String(monthlyIncome.toFixed(2)):'';
   $('#saveIncome').addEventListener('click',()=>{const value=Number($('#monthlyIncome').value);if(!Number.isFinite(value)||value<0){showToast('Informe uma renda mensal válida.');return;}monthlyIncome=value;localStorage.setItem(INCOME_KEY,String(monthlyIncome));render();showToast('Renda mensal salva; limite semanal atualizado.');});
   $('#prevWeek').addEventListener('click',()=>{weekOffset--;render();}); $('#nextWeek').addEventListener('click',()=>{weekOffset=Math.min(weekOffset+1,0);render();});
-  $('#typeFilter').addEventListener('change',render);
   const dialog=$('#transactionDialog');
   $('#newTransaction').addEventListener('click',()=>{editingId=null;const form=$('#transactionForm');form.reset();form.elements.date.value=dateISO(today);updateTransactionCategories(form.elements.type.value);updateCardPicker();$('#dialogEyebrow').textContent='NOVA MOVIMENTAÇÃO';$('#dialogTitle').textContent='Adicionar transação';$('#submitTransaction').textContent='Salvar transação';renderCards();dialog.showModal();});
   $('#closeDialog').addEventListener('click',()=>dialog.close());
