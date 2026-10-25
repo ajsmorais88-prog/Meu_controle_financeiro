@@ -135,6 +135,7 @@
     renderAllTransactions();
     renderCards();
     renderFixedCosts();
+    renderFixedAnnualChart();
     renderCardPurchases();
     renderCardProjection();
     renderMonthlyWeeklyChart();
@@ -304,6 +305,16 @@
       const actions=document.createElement('div');actions.className='transaction-actions';const edit=document.createElement('button');edit.type='button';edit.className='row-action';edit.textContent='Editar';edit.addEventListener('click',()=>openFixedEdit(item.id));const remove=document.createElement('button');remove.type='button';remove.className='row-action row-delete';remove.textContent='Apagar';remove.addEventListener('click',()=>deleteFixedCost(item.id));actions.append(edit,remove);row.append(icon,info,amount,actions);list.append(row);
     }
   }
+  function renderFixedAnnualChart(){
+    const selector=$('#fixedPaidYear'),chart=$('#fixedPaidChart');if(!selector||!chart)return;
+    const paidTransactions=transactions.filter(item=>item.fixedCostId&&Number(item.amount)>0);
+    const currentYear=String(today.getFullYear()),years=[...new Set([currentYear,...paidTransactions.map(item=>String(item.fixedCostMonthKey||item.date||'').slice(0,4)).filter(year=>/^\d{4}$/.test(year))])].sort((a,b)=>Number(b)-Number(a));
+    const selected=years.includes(selector.value)?selector.value:currentYear;selector.replaceChildren(...years.map(year=>new Option(year,year)));selector.value=selected;
+    const totals=Array(12).fill(0);
+    for(const item of paidTransactions){const key=String(item.fixedCostMonthKey||item.date||'').slice(0,7),match=key.match(/^(\d{4})-(\d{2})$/);if(!match||match[1]!==selected)continue;const month=Number(match[2]);if(month>=1&&month<=12)totals[month-1]+=Number(item.amount)||0;}
+    $('#fixedPaidYearTotal').textContent=money(totals.reduce((sum,value)=>sum+value,0));chart.replaceChildren();const maximum=Math.max(...totals,0);
+    for(let index=0;index<12;index++){const column=document.createElement('div');column.className='fixed-paid-column';column.setAttribute('aria-label',`${new Intl.DateTimeFormat('pt-BR',{month:'long'}).format(new Date(Number(selected),index,2))}: ${money(totals[index])} pagos`);const amount=document.createElement('small');amount.className='fixed-paid-value';amount.textContent=totals[index]?money(totals[index]):'—';const track=document.createElement('div');track.className='fixed-paid-track';const bar=document.createElement('div');bar.className='fixed-paid-bar';bar.style.height=maximum?`${totals[index]?Math.max(2,totals[index]/maximum*100):0}%`:'0%';track.append(bar);const label=document.createElement('span');label.textContent=new Intl.DateTimeFormat('pt-BR',{month:'short'}).format(new Date(Number(selected),index,2)).replace('.','');column.append(amount,track,label);chart.append(column);}
+  }
   let generatedReport = null;
   function renderReport(){
     const selectedTypes=[['fixed',$('#reportFixed').checked],['cards',$('#reportCards').checked],['investments',$('#reportInvestments').checked]].filter(item=>item[1]).map(item=>item[0]);if(!selectedTypes.length){showToast('Selecione ao menos uma categoria.');return;}
@@ -324,6 +335,7 @@
   $('#importCardStatement').addEventListener('click',()=>{if(!cards.length){showToast('Cadastre um cartão antes de importar a fatura.');return;}if(!$('#statementCardId').value){showToast('Selecione o cartão que recebeu esta fatura.');return;}$('#cardStatementFile').click();});
   $('#cardStatementFile').addEventListener('change',async(event)=>{const file=event.target.files?.[0];if(!file)return;try{await importCardStatement(file);}catch(error){showToast(error.message||'Não foi possível importar esta fatura.');}finally{event.target.value='';}});
   $('#transactionsMonthFilter').value=monthKey(today);$('#transactionsMonthFilter').addEventListener('change',renderAllTransactions);
+  $('#fixedPaidYear').addEventListener('change',renderFixedAnnualChart);
   $('#cardMonthFilter').value=monthKey(today);$('#cardMonthFilter').addEventListener('change',renderCardPurchases);
   $('#overviewMonthFilter').value=monthKey(today);$('#overviewMonthFilter').addEventListener('change',renderMonthlyWeeklyChart);
   $('#investmentMonthFilter').value=monthKey(today);$('#investmentMonthFilter').addEventListener('change',renderInvestments);$('#reportMonth').value=monthKey(today);$('#generateReport').addEventListener('click',renderReport);$('#reportFixed').addEventListener('change',()=>{$('#downloadReport').hidden=true;$('#downloadReportPdf').hidden=true;});$('#reportCards').addEventListener('change',()=>{$('#downloadReport').hidden=true;$('#downloadReportPdf').hidden=true;});$('#reportInvestments').addEventListener('change',()=>{$('#downloadReport').hidden=true;$('#downloadReportPdf').hidden=true;});$('#reportMonth').addEventListener('change',()=>{$('#downloadReport').hidden=true;$('#downloadReportPdf').hidden=true;});$('#downloadReport').addEventListener('click',downloadReportCsv);$('#downloadReportPdf').addEventListener('click',downloadReportPdf);
