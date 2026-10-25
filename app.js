@@ -103,7 +103,7 @@
   function updateAllocationGap(id,target,actual,kind){const node=document.getElementById(id);if(!monthlyIncome){node.textContent='Informe sua renda';node.classList.remove('over');return;}const difference=Math.abs(target-actual);if(difference<0.005){node.textContent=kind==='goal'?'Meta atingida':'No limite';node.classList.remove('over');return;}if(actual>target){node.textContent=`Passou ${money(difference)} ${kind==='goal'?'da meta':'do limite'}`;node.classList.add('over');return;}node.textContent=kind==='goal'?`Faltam ${money(difference)} para a meta`:`Restam ${money(difference)} do limite`;node.classList.remove('over');}  function showToast(message) { const toast=$('#toast'); toast.textContent=message; toast.classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>toast.classList.remove('show'),2600); }
   function startOfWeek(date) { const d=new Date(date); d.setDate(d.getDate()-((d.getDay()+6)%7)); d.setHours(0,0,0,0); return d; }
   function weekBounds() { const monday=startOfWeek(today); monday.setDate(monday.getDate()+weekOffset*7); const sunday=new Date(monday); sunday.setDate(sunday.getDate()+6); sunday.setHours(23,59,59,999); return {monday,sunday}; }
-  function realizedExpenseInRange(from,to){return transactions.filter(t=>{const date=parseDate(t.date);return t.type==='expense'&&!t.fixedCostId&&date>=from&&date<=to;}).reduce((sum,t)=>{const installments=Math.min(120,Math.max(1,Number(t.installments)||1));const creditCard=t.paymentMethod==='cartao'||Boolean(t.cardId);if(installments>1&&!creditCard&&['crediario','financiamento'].includes(t.paymentMethod))return sum;const amount=Number(t.amount)||0;const realizedAmount=creditCard&&installments>1?Math.ceil(Math.round(amount*100)/installments)/100:amount;return sum+realizedAmount;},0);}
+  function realizedExpenseInRange(from,to){return transactions.filter(t=>{const date=parseDate(t.date);return t.type==='expense'&&!t.fixedCostId&&date>=from&&date<=to;}).reduce((sum,t)=>{const installments=Math.min(120,Math.max(1,Number(t.installments)||1));const creditCard=t.paymentMethod==='cartao'||Boolean(t.cardId);if(installments>1&&!creditCard&&['crediario','financiamento'].includes(t.paymentMethod))return sum;const amount=Number(t.amount)||0;const realizedAmount=creditCard&&installments>1&&!t.statementBatchId?Math.ceil(Math.round(amount*100)/installments)/100:amount;return sum+realizedAmount;},0);}
   function render() {
     const {monday,sunday}=weekBounds();
     const fmt=(d)=>new Intl.DateTimeFormat('pt-BR',{day:'2-digit',month:'short'}).format(d).replace('.','');
@@ -112,13 +112,13 @@
     const inWeek=transactions.filter(t=>{const d=parseDate(t.date);return d>=monday&&d<=sunday;});
     const income=inWeek.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
     const expense=inWeek.filter(t=>t.type==='expense').reduce((sum,t)=>{const installments=Math.min(120,Math.max(1,Number(t.installments)||1));const installmentPlan=installments>1&&['cartao','crediario','financiamento'].includes(t.paymentMethod);return installmentPlan?sum:sum+Number(t.amount||0);},0);
-    const realizedExpense=realizedExpenseInRange(monday,sunday);
     $('#balanceValue').textContent=money(income-expense); $('#incomeValue').textContent=money(income); $('#expenseValue').textContent=money(expense);
     $('#fixedShare').textContent=money(monthlyIncome*0.5); $('#fixedCurrentValue').textContent=money(fixedMonthlyTotal()); $('#cardShare').textContent=money(monthlyIncome*0.4); $('#investmentShare').textContent=money(monthlyIncome*0.1);
     const currentMonth=monthKey(today);
     const nextMonth=monthKey(new Date(today.getFullYear(),today.getMonth()+1,1));
     const scheduledCardTotal=period=>transactions.filter(t=>t.type==='expense'&&(t.paymentMethod==='cartao'||t.cardId)).reduce((sum,t)=>{const card=cards.find(item=>String(item.id)===String(t.cardId));return sum+cardPaymentSchedule(t,card).filter(payment=>payment.monthKey===period).reduce((monthSum,payment)=>monthSum+payment.amount,0);},0);
     const currentCardInvoice=scheduledCardTotal(currentMonth),nextMonthCardExpenses=scheduledCardTotal(nextMonth);
+    const realizedExpense=realizedExpenseInRange(monday,sunday)+nextMonthCardExpenses/4;
     budget=Math.max(0,(monthlyIncome*0.4-nextMonthCardExpenses)/4);
     $('#plannedValue').textContent=money(budget); $('#spentValue').textContent=money(realizedExpense);
     const currentMonthInvestments=investments.filter(item=>String(item.date||'').slice(0,7)===currentMonth&&(item.movement||'contribution')==='contribution').reduce((sum,item)=>sum+Number(item.amount||0),0);
