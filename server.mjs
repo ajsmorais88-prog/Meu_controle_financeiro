@@ -20,7 +20,8 @@ const SESSION_TTL = 8 * 60 * 60 * 1000;
 const CLIENT_DATA_KEYS = new Set([
   'meu-controle-financeiro-transactions-v1', 'meu-controle-financeiro-monthly-income-v1',
   'meu-controle-financeiro-cards-v1', 'meu-controle-financeiro-fixed-costs-v1',
-  'meu-controle-financeiro-investments-v1', 'meu-controle-financeiro-binance-balances-v1'
+  'meu-controle-financeiro-investments-v1', 'meu-controle-financeiro-binance-balances-v1',
+  'meu-controle-financeiro-bank-balance-overrides-v1'
 ]);
 const DUMMY_PASSWORD_SALT = randomBytes(16);
 let pluggyApiKey = '';
