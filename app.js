@@ -173,7 +173,7 @@
     updateAllocationGap('investmentGap',monthlyIncome*0.1,currentMonthInvestmentBalance,'goal');
     updateAllocationProgress('fixedAllocationProgress',fixedMonthlyTotal(),monthlyIncome*0.5);updateAllocationProgress('cardAllocationProgress',currentCardInvoice+nextMonthCardExpenses,monthlyIncome*0.4);updateAllocationProgress('investmentAllocationProgress',currentMonthInvestmentBalance,monthlyIncome*0.1);    const percent=periodBudget>0?Math.round(realizedExpense/periodBudget*100):0; const shown=Math.min(percent,100);
     $('#progressFill').style.width=`${shown}%`; $('#progressFill').classList.toggle('over',periodBudget>0&&realizedExpense>periodBudget);
-    $('.progress-track').setAttribute('aria-valuenow',String(shown)); $('#progressPercent').textContent=`${percent}%`;
+    $('.progress-track').setAttribute('aria-valuenow',String(shown)); $('#progressPercent').textContent=`${percent}%`; $('#progressPercent').classList.toggle('over',periodBudget>0&&realizedExpense>periodBudget);
     $('#remainingLabel').textContent=monthlyIncome<=0?'Defina sua renda mensal':realizedExpense>periodBudget?`Você passou ${money(realizedExpense-periodBudget)} do limite`: `Restam ${money(periodBudget-realizedExpense)} no limite`;
     renderAllTransactions();
     renderCards();
