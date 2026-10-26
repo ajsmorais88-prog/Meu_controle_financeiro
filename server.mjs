@@ -71,34 +71,62 @@ function normalizeEmail(value) { return String(value || '').trim().toLowerCase()
 function validEmail(value) { return value.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value); }
 function emailCodeHash(userId, code) { return createHmac('sha256', dataEncryptionKey).update(`${userId}:${code}`).digest('hex'); }
 
+function safeMailDiagnostic(value, redactions = []) {
+  let output = String(value || '').replace(/[\r\n\t]+/g, ' ').replace(/[\w.+-]+@[\w.-]+\.[A-Z]{2,}/gi, '[email]');
+  for (const secret of redactions.filter(Boolean)) output = output.split(secret).join('[redacted]');
+  return output.slice(0, 500);
+}
+
+function logMailFailure({ diagnosticId, transport, stage, error, host, port, secure, redactions = [], durationMs }) {
+  const details = {
+    event: 'email_delivery_failure', diagnosticId, transport, stage,
+    code: safeMailDiagnostic(error?.code || error?.errno || 'unknown', redactions),
+    command: safeMailDiagnostic(error?.command, redactions) || undefined,
+    responseCode: Number(error?.responseCode) || undefined,
+    response: safeMailDiagnostic(error?.response, redactions) || undefined,
+    syscall: safeMailDiagnostic(error?.syscall, redactions) || undefined,
+    host, port, secure, durationMs, timestamp: new Date().toISOString()
+  };
+  console.error('[email-delivery]', JSON.stringify(details));
+}
+
 async function sendMail(to, subject, text) {
+  const diagnosticId = randomUUID();
+  const startedAt = Date.now();
   const smtpUser = String(process.env.SMTP_USER || '').trim();
   const smtpPassword = String(process.env.SMTP_PASSWORD || '').replace(/\s/g, '');
   const smtpHost = String(process.env.SMTP_HOST || 'smtp.gmail.com').trim();
   const smtpPort = Number(process.env.SMTP_PORT || 465);
+  const smtpSecure = process.env.SMTP_SECURE ? process.env.SMTP_SECURE === 'true' : smtpPort === 465;
   const from = String(process.env.EMAIL_FROM || smtpUser).trim();
   if (smtpUser && smtpPassword) {
     const transport = nodemailer.createTransport({
-      host: smtpHost, port: smtpPort, secure: process.env.SMTP_SECURE ? process.env.SMTP_SECURE === 'true' : smtpPort === 465,
+      host: smtpHost, port: smtpPort, secure: smtpSecure,
       auth: { user: smtpUser, pass: smtpPassword }, connectionTimeout: 10000, greetingTimeout: 10000, socketTimeout: 15000
     });
     try { await transport.sendMail({ from, to, subject, text }); }
     catch (error) {
-      console.error('Falha no envio SMTP:', error.code || error.responseCode || 'smtp_error');
-      throw Object.assign(new Error('Não foi possível enviar o e-mail. Confira as credenciais e a configuração SMTP.'), { status: 502 });
+      logMailFailure({ diagnosticId, transport: 'smtp', stage: error.command || 'connect_or_auth', error, host: smtpHost, port: smtpPort, secure: smtpSecure, redactions: [smtpUser, smtpPassword, to], durationMs: Date.now() - startedAt });
+      throw Object.assign(new Error(`Não foi possível enviar o e-mail. Confira a configuração SMTP. Referência: ${diagnosticId}.`), { status: 502, diagnosticId });
     } finally { transport.close(); }
     return;
   }
   const apiKey = String(process.env.RESEND_API_KEY || '').trim();
-  if (!apiKey || !from) throw Object.assign(new Error('Envio de e-mail indisponível. Configure RESEND_API_KEY e EMAIL_FROM na Vercel.'), { status: 503 });
-  const response = await fetch('https://api.resend.com/emails', {
-    method: 'POST', headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from, to: [to], subject, text }), signal: AbortSignal.timeout(10000)
-  });
+  if (!apiKey || !from) throw Object.assign(new Error('Envio de e-mail indisponível. Configure SMTP_USER e SMTP_PASSWORD, ou RESEND_API_KEY e EMAIL_FROM na Vercel.'), { status: 503 });
+  let response;
+  try {
+    response = await fetch('https://api.resend.com/emails', {
+      method: 'POST', headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from, to: [to], subject, text }), signal: AbortSignal.timeout(10000)
+    });
+  } catch (error) {
+    logMailFailure({ diagnosticId, transport: 'resend', stage: 'http_request', error, host: 'api.resend.com', port: 443, secure: true, redactions: [apiKey, to], durationMs: Date.now() - startedAt });
+    throw Object.assign(new Error(`Não foi possível conectar ao serviço de e-mail. Referência: ${diagnosticId}.`), { status: 502, diagnosticId });
+  }
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    console.error('Falha no envio de e-mail:', response.status, body.name || body.statusCode || 'provider_error');
-    throw Object.assign(new Error('Não foi possível enviar o e-mail agora. Confira a configuração do remetente e tente novamente.'), { status: 502 });
+    logMailFailure({ diagnosticId, transport: 'resend', stage: 'provider_response', error: { code: body.name || body.statusCode || 'provider_error', responseCode: response.status, response: response.statusText }, host: 'api.resend.com', port: 443, secure: true, redactions: [apiKey, to], durationMs: Date.now() - startedAt });
+    throw Object.assign(new Error(`O serviço recusou o envio. Confira remetente e credenciais. Referência: ${diagnosticId}.`), { status: 502, diagnosticId });
   }
 }
 
@@ -1046,7 +1074,7 @@ async function main() {
           try {
             const code = await createEmailCode(auth.id, auth.email, 'reset');
             await sendMail(auth.email, 'Código para redefinir sua senha · Minhas Finanças', `Seu código de redefinição é ${code}. Ele expira em 15 minutos e pode ser usado uma única vez. Se você não solicitou, ignore esta mensagem.`);
-          } catch (error) { console.error('Não foi possível enviar o código de recuperação:', error.message); }
+          } catch (error) { console.error('[password-reset-email]', JSON.stringify({ event: 'password_reset_email_not_sent', diagnosticId: error.diagnosticId || null, code: safeMailDiagnostic(error.code || 'preparation_or_delivery_error'), timestamp: new Date().toISOString() })); }
         }
         send(res, 200, { ok: true });
         return;
