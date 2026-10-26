@@ -6,7 +6,8 @@
     CARD_KEY: 'meu-controle-financeiro-cards-v1',
     FIXED_KEY: 'meu-controle-financeiro-fixed-costs-v1',
     INVESTMENT_KEY: 'meu-controle-financeiro-investments-v1',
-    BINANCE_BALANCES_KEY: 'meu-controle-financeiro-binance-balances-v1'
+    BINANCE_BALANCES_KEY: 'meu-controle-financeiro-binance-balances-v1',
+    BANK_BALANCE_KEY: 'meu-controle-financeiro-bank-balance-overrides-v1'
   };
   const allowedStorageKeys = new Set(Object.values(baseKeys));
   let sessionInfo;
@@ -74,6 +75,7 @@
   const FIXED_KEY = scopedKey(baseKeys.FIXED_KEY);
   const INVESTMENT_KEY = scopedKey(baseKeys.INVESTMENT_KEY);
   const BINANCE_BALANCES_KEY = scopedKey(baseKeys.BINANCE_BALANCES_KEY);
+  const BANK_BALANCE_KEY = scopedKey(baseKeys.BANK_BALANCE_KEY);
   const $ = (selector) => document.querySelector(selector);
   const money = (value) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0);
   const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -85,6 +87,7 @@
   let fixedCosts = (() => { try { const data=JSON.parse(localStorage.getItem(FIXED_KEY)||'[]'); return Array.isArray(data)?data:[]; } catch { return []; } })();
   let investments = (() => { try { const data=JSON.parse(localStorage.getItem(INVESTMENT_KEY)||'[]'); return Array.isArray(data)?data:[]; } catch { return []; } })();
   let syncedBinance = (() => { try { const data=JSON.parse(localStorage.getItem(BINANCE_BALANCES_KEY)||'null'); return data&&Array.isArray(data.balances)?data:null; } catch { return null; } })();
+  let bankBalanceOverrides = (() => { try { const data=JSON.parse(localStorage.getItem(BANK_BALANCE_KEY)||'{}'); return data&&typeof data==='object'&&!Array.isArray(data)?data:{}; } catch { return {}; } })();
   let monthlyIncome = Number(localStorage.getItem(INCOME_KEY) || 0);
   let budget = monthlyIncome * 0.4 / 4;
   let weekOffset = 0;
@@ -183,6 +186,8 @@
     renderInvestmentAllocation();
     renderScheduledFixedCosts();
   }
+  function sumBankTransactions(bankTransactions,from,to){return bankTransactions.filter(t=>{const date=parseDate(t.date);return (!from||date>=from)&&(!to||date<to);}).reduce((balance,t)=>balance+(t.type==='income'?1:-1)*(Number(t.amount)||0),0);}
+  function getBankClosingBalance(targetMonth,bankTransactions){if(Object.prototype.hasOwnProperty.call(bankBalanceOverrides,targetMonth))return Number(bankBalanceOverrides[targetMonth])||0;const [year,month]=targetMonth.split('-').map(Number);const cutoff=new Date(year,month,1);const priorOverrides=Object.keys(bankBalanceOverrides).filter(key=>key<=targetMonth).sort();if(!priorOverrides.length)return sumBankTransactions(bankTransactions,null,cutoff);const baseMonth=priorOverrides[priorOverrides.length-1],[baseYear,baseMonthNumber]=baseMonth.split('-').map(Number);const baseBalance=Number(bankBalanceOverrides[baseMonth])||0;const afterBase=new Date(baseYear,baseMonthNumber,1);return baseBalance+sumBankTransactions(bankTransactions,afterBase,cutoff);}
   function renderAllTransactions(){
     const selectedMonth=$('#transactionsMonthFilter').value||monthKey(today);
     const monthTransactions=transactions.filter(t=>String(t.date||'').slice(0,7)===selectedMonth&&!t.statementBatchId&&t.paymentMethod!=='cartao'&&!t.cardId).sort((a,b)=>String(b.date).localeCompare(String(a.date))||Number(b.createdAt||0)-Number(a.createdAt||0));
@@ -190,8 +195,9 @@
     const expense=monthTransactions.filter(t=>t.type==='expense').reduce((sum,t)=>sum+Number(t.amount||0),0);
     const monthDate=new Date(Number(selectedMonth.slice(0,4)),Number(selectedMonth.slice(5,7))-1,1);
     const bankTransactions=transactions.filter(t=>!t.statementBatchId&&t.paymentMethod!=='cartao'&&!t.cardId);
-    const previousMonthBalance=bankTransactions.filter(t=>parseDate(t.date)<monthDate).reduce((balance,t)=>balance+(t.type==='income'?1:-1)*(Number(t.amount)||0),0);
-    const bankBalance=previousMonthBalance+income-expense;
+    const previousMonthKey=monthKey(new Date(monthDate.getFullYear(),monthDate.getMonth()-1,1));
+    const previousMonthBalance=getBankClosingBalance(previousMonthKey,bankTransactions);
+    const bankBalance=Object.prototype.hasOwnProperty.call(bankBalanceOverrides,selectedMonth)?Number(bankBalanceOverrides[selectedMonth]):previousMonthBalance+income-expense;
     $('#previousMonthBalance').textContent=money(previousMonthBalance);
     $('#bankAccountBalance').textContent=money(bankBalance);
     $('#allTransactionsMonthLabel').textContent=`Transações de ${new Intl.DateTimeFormat('pt-BR',{month:'long',year:'numeric'}).format(monthDate)}`;
@@ -447,6 +453,7 @@
   $('#importCardStatement').addEventListener('click',()=>{if(!cards.length){showToast('Cadastre um cartão antes de importar a fatura.');return;}if(!$('#statementCardId').value){showToast('Selecione o cartão que recebeu esta fatura.');return;}$('#cardStatementFile').click();});
   $('#cardStatementFile').addEventListener('change',async(event)=>{const file=event.target.files?.[0];if(!file)return;try{await importCardStatement(file);}catch(error){showToast(error.message||'Não foi possível importar esta fatura.');}finally{event.target.value='';}});
   $('#transactionsMonthFilter').value=monthKey(today);$('#transactionsMonthFilter').addEventListener('change',renderAllTransactions);
+  $('#editPreviousMonthBalance').addEventListener('click',()=>{const selectedMonth=$('#transactionsMonthFilter').value||monthKey(today);const [year,month]=selectedMonth.split('-').map(Number);const previousMonth=monthKey(new Date(year,month-2,1));const bankTransactions=transactions.filter(t=>!t.statementBatchId&&t.paymentMethod!=='cartao'&&!t.cardId);const current=getBankClosingBalance(previousMonth,bankTransactions);const answer=prompt('Informe o saldo de fechamento de '+new Intl.DateTimeFormat('pt-BR',{month:'long',year:'numeric'}).format(new Date(year,month-2,1))+'. Use valores positivos ou negativos.',current.toFixed(2).replace('.',','));if(answer===null)return;let normalized=String(answer).trim().replace(/R\$/gi,'').replace(/\s/g,'');if(normalized.includes(','))normalized=normalized.replace(/\./g,'').replace(',','.');const amount=Number(normalized);if(!Number.isFinite(amount)){showToast('Informe um saldo válido, por exemplo 5,56.');return;}bankBalanceOverrides[previousMonth]=amount;localStorage.setItem(BANK_BALANCE_KEY,JSON.stringify(bankBalanceOverrides));renderAllTransactions();showToast('Saldo de fechamento atualizado.');});
   $('#fixedPaidYear').addEventListener('change',renderFixedAnnualChart);
   $('#cardMonthFilter').value=monthKey(today);$('#cardMonthFilter').addEventListener('change',renderCardPurchases);
   $('#overviewMonthFilter').value=monthKey(today);$('#overviewMonthFilter').addEventListener('change',renderMonthlyWeeklyChart);
@@ -706,7 +713,7 @@
   }
   function parseOFX(text){const transactionsFound=[];const blocks=text.split(/<STMTTRN>/i).slice(1);for(const block of blocks){const get=(tag)=>((block.match(new RegExp(`<${tag}>([^<\\r\\n]+)`, 'i'))||[])[1]||'').trim();let date=get('DTPOSTED').slice(0,8);if(!/^\d{8}$/.test(date))continue;date=`${date.slice(0,4)}-${date.slice(4,6)}-${date.slice(6,8)}`;let raw=get('TRNAMT').replace(',','.');const signed=Number(raw);if(!Number.isFinite(signed)||signed===0)continue;transactionsFound.push({id:`ofx-${Date.now()}-${Math.random()}`,date,description:get('MEMO')||get('NAME')||'Transação importada',category:'Importado',amount:Math.abs(signed),type:signed<0?'expense':'income',createdAt:Date.now()});}return transactionsFound;}
   $('#statementFile').addEventListener('change',async(event)=>{const file=event.target.files?.[0];if(!file)return;try{const bytes=new Uint8Array(await file.arrayBuffer());let text;if(bytes[0]===0xff&&bytes[1]===0xfe)text=new TextDecoder('utf-16le').decode(bytes.slice(2));else if(bytes[0]===0xfe&&bytes[1]===0xff)text=new TextDecoder('utf-16be').decode(bytes.slice(2));else{text=new TextDecoder('utf-8').decode(bytes);if(text.includes('\uFFFD'))text=new TextDecoder('windows-1252').decode(bytes);}const parsed=/\.ofx$/i.test(file.name)||/<OFX>/i.test(text)?parseOFX(text):parseCSV(text);if(!parsed.length){showToast('O arquivo foi lido, mas não encontrei movimentações com data e valor preenchidos.');return;}transactions.push(...parsed);saveTransactions();render();showToast(`${parsed.length} transações importadas.`);}catch(error){showToast(error.message||'Não foi possível ler esse arquivo.');}finally{event.target.value='';}});
-  $('#clearData').addEventListener('click',()=>{if(!confirm('Apagar transações, cartões, custos fixos, investimentos e renda mensal salvos neste navegador?'))return;transactions=[];cards=[];fixedCosts=[];investments=[];monthlyIncome=0;budget=0;localStorage.removeItem(TX_KEY);localStorage.removeItem(CARD_KEY);localStorage.removeItem(FIXED_KEY);localStorage.removeItem(INVESTMENT_KEY);localStorage.removeItem(INCOME_KEY);$('#monthlyIncome').value='';render();showToast('Dados apagados.');});
+  $('#clearData').addEventListener('click',()=>{if(!confirm('Apagar transações, cartões, custos fixos, investimentos e renda mensal salvos neste navegador?'))return;transactions=[];cards=[];fixedCosts=[];investments=[];monthlyIncome=0;budget=0;localStorage.removeItem(TX_KEY);localStorage.removeItem(CARD_KEY);localStorage.removeItem(FIXED_KEY);localStorage.removeItem(INVESTMENT_KEY);localStorage.removeItem(INCOME_KEY);localStorage.removeItem(BANK_BALANCE_KEY);bankBalanceOverrides={};$('#monthlyIncome').value='';render();showToast('Dados apagados.');});
   render();
   fetch('/api/session',{cache:'no-store'}).then(response=>response.ok?response.json():null).then(session=>{if(!session?.username)return;const name=String(session.username).trim();if(!name)return;$('#greetingName').textContent=`${name.charAt(0).toLocaleUpperCase('pt-BR')}${name.slice(1)}!`;}).catch(()=>{});
 })();
