@@ -88,6 +88,7 @@
   let monthlyIncome = Number(localStorage.getItem(INCOME_KEY) || 0);
   let budget = monthlyIncome * 0.4 / 4;
   let weekOffset = 0;
+  let monthOffset = 0;
   let editingId = null;
   let editingCardId = null;
   let editingFixedId = null;
@@ -129,32 +130,43 @@
   function weekBounds() { const monday=startOfWeek(today); monday.setDate(monday.getDate()+weekOffset*7); const sunday=new Date(monday); sunday.setDate(sunday.getDate()+6); sunday.setHours(23,59,59,999); return {monday,sunday}; }
   function realizedExpenseInRange(from,to){return transactions.filter(t=>{const date=parseDate(t.date);return t.type==='expense'&&!t.fixedCostId&&date>=from&&date<=to;}).reduce((sum,t)=>{const installments=Math.min(120,Math.max(1,Number(t.installments)||1));const creditCard=t.paymentMethod==='cartao'||Boolean(t.cardId);if(installments>1&&!creditCard&&['crediario','financiamento'].includes(t.paymentMethod))return sum;const amount=Number(t.amount)||0;const realizedAmount=creditCard&&installments>1&&!t.statementBatchId?Math.ceil(Math.round(amount*100)/installments)/100:amount;return sum+realizedAmount;},0);}
   function render() {
+    const periodMode=$('#periodMode').value||'week';
+    const isMonth=periodMode==='month';
     const {monday,sunday}=weekBounds();
+    const monthStart=new Date(today.getFullYear(),today.getMonth()+monthOffset,1);
+    const rangeStart=isMonth?monthStart:monday;
+    const rangeEnd=isMonth?new Date(monthStart.getFullYear(),monthStart.getMonth()+1,0,23,59,59,999):sunday;
     const fmt=(d)=>new Intl.DateTimeFormat('pt-BR',{day:'2-digit',month:'short'}).format(d).replace('.','');
-    $('#todayLabel').textContent=weekOffset===0?'Esta semana':weekOffset===-1?'Semana passada':weekOffset===1?'Próxima semana':'Semana';
-    $('#weekRange').textContent=`${fmt(monday)} – ${fmt(sunday)}`;
-    const inWeek=transactions.filter(t=>{const d=parseDate(t.date);return d>=monday&&d<=sunday;});
+    const monthLabel=new Intl.DateTimeFormat('pt-BR',{month:'long',year:'numeric'}).format(monthStart);
+    $('#todayLabel').textContent=isMonth?(monthOffset===0?'Este mês':monthOffset===-1?'Mês passado':monthOffset===1?'Próximo mês':monthLabel):(weekOffset===0?'Esta semana':weekOffset===-1?'Semana passada':weekOffset===1?'Próxima semana':'Semana');
+    $('#weekRange').textContent=isMonth?monthLabel.charAt(0).toLocaleUpperCase('pt-BR')+monthLabel.slice(1):`${fmt(monday)} – ${fmt(sunday)}`;
+    $('#prevWeek').setAttribute('aria-label',isMonth?'Mês anterior':'Semana anterior');
+    $('#nextWeek').setAttribute('aria-label',isMonth?'Próximo mês':'Próxima semana');
+    const inWeek=transactions.filter(t=>{const d=parseDate(t.date);return d>=rangeStart&&d<=rangeEnd;});
     const income=inWeek.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
-    const expense=inWeek.filter(t=>t.type==='expense').reduce((sum,t)=>{const installments=Math.min(120,Math.max(1,Number(t.installments)||1));const installmentPlan=installments>1&&['cartao','crediario','financiamento'].includes(t.paymentMethod);return installmentPlan?sum:sum+Number(t.amount||0);},0);
+    const expense=isMonth?realizedExpenseInRange(rangeStart,rangeEnd):inWeek.filter(t=>t.type==='expense').reduce((sum,t)=>{const installments=Math.min(120,Math.max(1,Number(t.installments)||1));const installmentPlan=installments>1&&['cartao','crediario','financiamento'].includes(t.paymentMethod);return installmentPlan?sum:sum+Number(t.amount||0);},0);
     $('#balanceValue').textContent=money(income-expense); $('#incomeValue').textContent=money(income); $('#expenseValue').textContent=money(expense);
     $('#fixedShare').textContent=money(monthlyIncome*0.5); $('#fixedCurrentValue').textContent=money(fixedMonthlyTotal()); $('#cardShare').textContent=money(monthlyIncome*0.4); $('#investmentShare').textContent=money(monthlyIncome*0.1);
     const currentMonth=monthKey(today);
-    const nextMonth=monthKey(new Date(today.getFullYear(),today.getMonth()+1,1));
+    const planningMonth=isMonth?monthKey(monthStart):currentMonth;
+    const planningMonthDate=new Date(Number(planningMonth.slice(0,4)),Number(planningMonth.slice(5,7))-1,1);
+    const nextMonth=monthKey(new Date(planningMonthDate.getFullYear(),planningMonthDate.getMonth()+1,1));
     const scheduledCardTotal=period=>transactions.filter(t=>t.type==='expense'&&(t.paymentMethod==='cartao'||t.cardId)).reduce((sum,t)=>{const card=cards.find(item=>String(item.id)===String(t.cardId));return sum+cardPaymentSchedule(t,card).filter(payment=>payment.monthKey===period).reduce((monthSum,payment)=>monthSum+payment.amount,0);},0);
     const currentCardInvoice=transactions.filter(t=>t.type==='expense'&&(t.paymentMethod==='cartao'||t.cardId)&&monthKey(parseDate(t.date))===currentMonth).reduce((sum,t)=>{const installments=Math.min(120,Math.max(1,Number(t.installments)||1)),amount=Number(t.amount)||0;const monthlyPurchaseAmount=installments>1&&!t.statementBatchId?Math.ceil(Math.round(amount*100)/installments)/100:amount;return sum+monthlyPurchaseAmount;},0),nextMonthCardExpenses=scheduledCardTotal(nextMonth);
-    const realizedExpense=realizedExpenseInRange(monday,sunday)+nextMonthCardExpenses/4;
     budget=Math.max(0,(monthlyIncome*0.4-nextMonthCardExpenses)/4);
-    $('#plannedValue').textContent=money(budget); $('#spentValue').textContent=money(realizedExpense);
+    const periodBudget=isMonth?budget*4:budget;
+    const realizedExpense=realizedExpenseInRange(rangeStart,rangeEnd)+(isMonth?nextMonthCardExpenses:nextMonthCardExpenses/4);
+    $('#plannedValue').textContent=money(periodBudget); $('#spentValue').textContent=money(realizedExpense);
     const currentMonthInvestmentContributions=investments.filter(item=>String(item.date||'').slice(0,7)===currentMonth&&(item.movement||'contribution')==='contribution').reduce((sum,item)=>sum+Number(item.amount||0),0);
     const currentMonthInvestmentWithdrawals=investments.filter(item=>String(item.date||'').slice(0,7)===currentMonth&&item.movement==='withdrawal').reduce((sum,item)=>sum+Number(item.amount||0),0);
     const currentMonthInvestmentBalance=currentMonthInvestmentContributions-currentMonthInvestmentWithdrawals;
     renderFinancialAlerts(currentCardInvoice,currentMonthInvestmentBalance);
     $('#currentCardInvoice').textContent=money(currentCardInvoice); $('#nextMonthCardExpenses').textContent=`Despesas futuras em ${new Intl.DateTimeFormat('pt-BR',{month:'long',year:'numeric'}).format(new Date(today.getFullYear(),today.getMonth()+1,2))}: ${money(nextMonthCardExpenses)}`; $('#currentMonthInvestment').textContent=money(currentMonthInvestmentBalance); $('#currentMonthInvestmentContributions').textContent=`Aportado: ${money(currentMonthInvestmentContributions)}`; $('#currentMonthInvestmentWithdrawals').textContent=`Resgatado: ${money(currentMonthInvestmentWithdrawals)}`;    updateAllocationGap('fixedGap',monthlyIncome*0.5,fixedMonthlyTotal(),'limit');
     updateAllocationGap('cardGap',monthlyIncome*0.4,currentCardInvoice+nextMonthCardExpenses,'limit');
-    updateAllocationGap('investmentGap',monthlyIncome*0.1,currentMonthInvestmentBalance,'goal');    const percent=budget>0?Math.round(realizedExpense/budget*100):0; const shown=Math.min(percent,100);
-    $('#progressFill').style.width=`${shown}%`; $('#progressFill').classList.toggle('over',budget>0&&realizedExpense>budget);
+    updateAllocationGap('investmentGap',monthlyIncome*0.1,currentMonthInvestmentBalance,'goal');    const percent=periodBudget>0?Math.round(realizedExpense/periodBudget*100):0; const shown=Math.min(percent,100);
+    $('#progressFill').style.width=`${shown}%`; $('#progressFill').classList.toggle('over',periodBudget>0&&realizedExpense>periodBudget);
     $('.progress-track').setAttribute('aria-valuenow',String(shown)); $('#progressPercent').textContent=`${percent}%`;
-    $('#remainingLabel').textContent=monthlyIncome<=0?'Defina sua renda mensal':realizedExpense>budget?`Você passou ${money(realizedExpense-budget)} do limite`: `Restam ${money(budget-realizedExpense)} no limite`;
+    $('#remainingLabel').textContent=monthlyIncome<=0?'Defina sua renda mensal':realizedExpense>periodBudget?`Você passou ${money(realizedExpense-periodBudget)} do limite`: `Restam ${money(periodBudget-realizedExpense)} no limite`;
     renderAllTransactions();
     renderCards();
     renderFixedCosts();
@@ -561,7 +573,7 @@
   function deleteFixedCost(id){const item=fixedCosts.find(x=>String(x.id)===String(id));if(!item||!confirm(`Apagar o custo fixo “${item.name}”?`))return;fixedCosts=fixedCosts.filter(x=>String(x.id)!==String(id));localStorage.setItem(FIXED_KEY,JSON.stringify(fixedCosts));render();showToast('Custo fixo apagado.');}
   $('#monthlyIncome').value=monthlyIncome?String(monthlyIncome.toFixed(2)):'';
   $('#saveIncome').addEventListener('click',()=>{const value=Number($('#monthlyIncome').value);if(!Number.isFinite(value)||value<0){showToast('Informe uma renda mensal válida.');return;}monthlyIncome=value;localStorage.setItem(INCOME_KEY,String(monthlyIncome));render();showToast('Renda mensal salva; limite semanal atualizado.');});
-  $('#prevWeek').addEventListener('click',()=>{weekOffset--;render();}); $('#nextWeek').addEventListener('click',()=>{weekOffset=Math.min(weekOffset+1,0);render();});
+  $('#periodMode').addEventListener('change',render); $('#prevWeek').addEventListener('click',()=>{if($('#periodMode').value==='month')monthOffset--;else weekOffset--;render();}); $('#nextWeek').addEventListener('click',()=>{if($('#periodMode').value==='month')monthOffset=Math.min(monthOffset+1,0);else weekOffset=Math.min(weekOffset+1,0);render();});
   const dialog=$('#transactionDialog');
   $('#newTransaction').addEventListener('click',()=>{editingId=null;const form=$('#transactionForm');form.reset();form.elements.date.value=dateISO(today);updateTransactionCategories(form.elements.type.value);updateCardPicker();$('#dialogEyebrow').textContent='NOVA MOVIMENTAÇÃO';$('#dialogTitle').textContent='Adicionar transação';$('#submitTransaction').textContent='Salvar transação';renderCards();dialog.showModal();});
   $('#closeDialog').addEventListener('click',()=>dialog.close());
