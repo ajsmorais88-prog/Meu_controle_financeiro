@@ -188,11 +188,13 @@
     const monthTransactions=transactions.filter(t=>String(t.date||'').slice(0,7)===selectedMonth&&!t.statementBatchId&&t.paymentMethod!=='cartao'&&!t.cardId).sort((a,b)=>String(b.date).localeCompare(String(a.date))||Number(b.createdAt||0)-Number(a.createdAt||0));
     const income=monthTransactions.filter(t=>t.type==='income').reduce((sum,t)=>sum+Number(t.amount||0),0);
     const expense=monthTransactions.filter(t=>t.type==='expense').reduce((sum,t)=>sum+Number(t.amount||0),0);
-    const bankBalance=transactions.filter(t=>!t.statementBatchId&&t.paymentMethod!=='cartao'&&!t.cardId&&parseDate(t.date)<=today).reduce((balance,t)=>balance+(t.type==='income'?1:-1)*(Number(t.amount)||0),0);
-    $('#bankAccountBalance').textContent=money(bankBalance);
     const monthDate=new Date(Number(selectedMonth.slice(0,4)),Number(selectedMonth.slice(5,7))-1,1);
+    const bankTransactions=transactions.filter(t=>!t.statementBatchId&&t.paymentMethod!=='cartao'&&!t.cardId);
+    const previousMonthBalance=bankTransactions.filter(t=>parseDate(t.date)<monthDate).reduce((balance,t)=>balance+(t.type==='income'?1:-1)*(Number(t.amount)||0),0);
+    const bankBalance=previousMonthBalance+income-expense;
+    $('#previousMonthBalance').textContent=money(previousMonthBalance);
+    $('#bankAccountBalance').textContent=money(bankBalance);
     $('#allTransactionsMonthLabel').textContent=`Transações de ${new Intl.DateTimeFormat('pt-BR',{month:'long',year:'numeric'}).format(monthDate)}`;
-    $('#allTransactionsCount').textContent=String(monthTransactions.length);
     $('#allTransactionsIncome').textContent=money(income);
     $('#allTransactionsExpense').textContent=money(expense);
     const list=$('#allTransactionsList');list.replaceChildren();$('#allTransactionsEmpty').hidden=monthTransactions.length>0;
