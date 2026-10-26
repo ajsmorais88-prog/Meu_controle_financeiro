@@ -132,6 +132,7 @@
   function startOfWeek(date) { const d=new Date(date); d.setDate(d.getDate()-((d.getDay()+6)%7)); d.setHours(0,0,0,0); return d; }
   function weekBounds() { const monday=startOfWeek(today); monday.setDate(monday.getDate()+weekOffset*7); const sunday=new Date(monday); sunday.setDate(sunday.getDate()+6); sunday.setHours(23,59,59,999); return {monday,sunday}; }
   function realizedExpenseInRange(from,to){return transactions.filter(t=>{const date=parseDate(t.date);return t.type==='expense'&&!t.fixedCostId&&date>=from&&date<=to;}).reduce((sum,t)=>{const installments=Math.min(120,Math.max(1,Number(t.installments)||1));const creditCard=t.paymentMethod==='cartao'||Boolean(t.cardId);if(installments>1&&!creditCard&&['crediario','financiamento'].includes(t.paymentMethod))return sum;const amount=Number(t.amount)||0;const realizedAmount=creditCard&&installments>1&&!t.statementBatchId?Math.ceil(Math.round(amount*100)/installments)/100:amount;return sum+realizedAmount;},0);}
+  function updateAllocationProgress(id,actual,target){const bar=document.getElementById(id);if(!bar)return;const percent=target>0?Math.max(0,Number(actual||0)/target*100):0;bar.style.width=`${Math.min(percent,100)}%`;bar.parentElement.classList.toggle('over',percent>100);bar.parentElement.setAttribute('aria-valuenow',String(Math.round(percent)));}
   function render() {
     reconcileFixedCostsWithBankTransactions();
     const periodMode=$('#periodMode').value||'week';
@@ -169,7 +170,8 @@
     renderFinancialAlerts(currentCardInvoice,currentMonthInvestmentBalance);
     $('#currentCardInvoice').textContent=money(currentCardInvoice); $('#currentMonthInvestment').textContent=money(currentMonthInvestmentBalance); $('#currentMonthInvestmentContributions').textContent=`Aportado: ${money(currentMonthInvestmentContributions)}`; $('#currentMonthInvestmentWithdrawals').textContent=`Resgatado: ${money(currentMonthInvestmentWithdrawals)}`;    updateAllocationGap('fixedGap',monthlyIncome*0.5,fixedMonthlyTotal(),'limit');
     updateAllocationGap('cardGap',monthlyIncome*0.4,currentCardInvoice+nextMonthCardExpenses,'limit');
-    updateAllocationGap('investmentGap',monthlyIncome*0.1,currentMonthInvestmentBalance,'goal');    const percent=periodBudget>0?Math.round(realizedExpense/periodBudget*100):0; const shown=Math.min(percent,100);
+    updateAllocationGap('investmentGap',monthlyIncome*0.1,currentMonthInvestmentBalance,'goal');
+    updateAllocationProgress('fixedAllocationProgress',fixedMonthlyTotal(),monthlyIncome*0.5);updateAllocationProgress('cardAllocationProgress',currentCardInvoice+nextMonthCardExpenses,monthlyIncome*0.4);updateAllocationProgress('investmentAllocationProgress',currentMonthInvestmentBalance,monthlyIncome*0.1);    const percent=periodBudget>0?Math.round(realizedExpense/periodBudget*100):0; const shown=Math.min(percent,100);
     $('#progressFill').style.width=`${shown}%`; $('#progressFill').classList.toggle('over',periodBudget>0&&realizedExpense>periodBudget);
     $('.progress-track').setAttribute('aria-valuenow',String(shown)); $('#progressPercent').textContent=`${percent}%`;
     $('#remainingLabel').textContent=monthlyIncome<=0?'Defina sua renda mensal':realizedExpense>periodBudget?`Você passou ${money(realizedExpense-periodBudget)} do limite`: `Restam ${money(periodBudget-realizedExpense)} no limite`;
