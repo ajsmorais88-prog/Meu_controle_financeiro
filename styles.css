@@ -44,7 +44,7 @@ dialog{border-radius:18px;box-shadow:0 24px 80px #102c2438}dialog form{padding:2
 
 .allocation{grid-template-columns:repeat(2,minmax(0,1fr));column-gap:28px;row-gap:11px}.allocation span{padding:2px 0}.allocation b{font-size:11px}@media(max-width:700px){.allocation{grid-template-columns:repeat(2,minmax(0,1fr));column-gap:16px;row-gap:10px}}
 
-.allocation .allocation-gap{font-size:9px;font-weight:500;color:#688374;line-height:1.35}.allocation .allocation-gap.over{color:#b45f43}.allocation .allocation-gap:empty{display:none}
+.allocation .allocation-gap{font-size:9px;font-weight:500;color:#688374;line-height:1.35}.allocation .allocation-gap.over{color:#b45f43}.allocation .allocation-gap:empty{display:none}.allocation .card-budget-breakdown{max-width:250px;font-variant-numeric:tabular-nums}
 
 .investment-actions .button-outline{border:1px solid #d7e1da;color:#385c4e;background:#fff;box-shadow:none}.investment-amount.withdrawal{color:var(--orange)}.investment-withdrawal .investment-icon{background:#fff1e9;color:var(--orange)}
 #investmentMovementField[hidden]{display:none!important}
