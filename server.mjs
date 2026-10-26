@@ -159,7 +159,7 @@ async function getUserData(userId, key, fallback = null) {
 async function setUserData(userId, key, value) {
   await dbRun(`INSERT INTO user_data (user_id, data_key, value, updated_at) VALUES (?, ?, ?, ?)
     ON CONFLICT(user_id, data_key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
-    userId, key, encryptUserDataValue(JSON.stringify(value)), new Date().toISOString());
+    userId, key, encryptUserDataValue(JSON.stringify(value), userId, key), new Date().toISOString());
 }
 
 async function readBradescoItem(userId) {
@@ -200,31 +200,45 @@ function decryptSecret(record) {
   return Buffer.concat([decipher.update(Buffer.from(record.ciphertext, 'base64')), decipher.final()]).toString('utf8');
 }
 
-const USER_DATA_ENCRYPTION_PREFIX = 'enc:v1:';
+function encryptUserDataValue(value, userId, dataKey) {
+  const nonce = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', dataEncryptionKey, nonce);
+  cipher.setAAD(Buffer.from(`${userId}:${dataKey}`, 'utf8'));
+  const ciphertext = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
+  return 'enc:v2:' + JSON.stringify({ nonce: nonce.toString('base64'), ciphertext: ciphertext.toString('base64'), tag: cipher.getAuthTag().toString('base64') });
+}
 
-function encryptUserDataValue(value) {
-  return USER_DATA_ENCRYPTION_PREFIX + JSON.stringify(encryptSecret(value));
+function decryptUserDataValue(storedValue, userId, dataKey) {
+  const record = JSON.parse(storedValue.slice('enc:v2:'.length));
+  const decipher = createDecipheriv('aes-256-gcm', dataEncryptionKey, Buffer.from(record.nonce, 'base64'));
+  decipher.setAAD(Buffer.from(`${userId}:${dataKey}`, 'utf8'));
+  decipher.setAuthTag(Buffer.from(record.tag, 'base64'));
+  return Buffer.concat([decipher.update(Buffer.from(record.ciphertext, 'base64')), decipher.final()]).toString('utf8');
 }
 
 async function readUserDataValue(userId, dataKey, storedValue) {
-  if (storedValue.startsWith(USER_DATA_ENCRYPTION_PREFIX)) {
-    return decryptSecret(JSON.parse(storedValue.slice(USER_DATA_ENCRYPTION_PREFIX.length)));
-  }
-  const encryptedValue = encryptUserDataValue(storedValue);
+  if (storedValue.startsWith('enc:v2:')) return decryptUserDataValue(storedValue, userId, dataKey);
+  const rawValue = storedValue.startsWith('enc:v1:')
+    ? decryptSecret(JSON.parse(storedValue.slice('enc:v1:'.length)))
+    : storedValue;
+  const encryptedValue = encryptUserDataValue(rawValue, userId, dataKey);
   await dbRun('UPDATE user_data SET value = ? WHERE user_id = ? AND data_key = ? AND value = ?', encryptedValue, userId, dataKey, storedValue);
-  return storedValue;
+  return rawValue;
 }
 
 async function migrateUserDataEncryption() {
-  const marker = 'user_data_encryption_v1';
+  const marker = 'user_data_encryption_v2';
   if (await dbGet('SELECT 1 FROM app_meta WHERE key = ?', marker)) return;
   let migrated = 0;
   while (true) {
-    const rows = await dbAll('SELECT user_id, data_key, value FROM user_data WHERE value NOT LIKE ? LIMIT 100', `${USER_DATA_ENCRYPTION_PREFIX}%`);
+    const rows = await dbAll('SELECT user_id, data_key, value FROM user_data WHERE value NOT LIKE ? LIMIT 100', 'enc:v2:%');
     if (!rows.length) break;
     for (let index = 0; index < rows.length; index += 25) {
       const batch = rows.slice(index, index + 25);
-      await Promise.all(batch.map(row => dbRun('UPDATE user_data SET value = ? WHERE user_id = ? AND data_key = ? AND value = ?', encryptUserDataValue(row.value), row.user_id, row.data_key, row.value)));
+      await Promise.all(batch.map(row => {
+        const rawValue = row.value.startsWith('enc:v1:') ? decryptSecret(JSON.parse(row.value.slice('enc:v1:'.length))) : row.value;
+        return dbRun('UPDATE user_data SET value = ? WHERE user_id = ? AND data_key = ? AND value = ?', encryptUserDataValue(rawValue, row.user_id, row.data_key), row.user_id, row.data_key, row.value);
+      }));
     }
     migrated += rows.length;
   }
