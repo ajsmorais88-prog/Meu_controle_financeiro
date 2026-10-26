@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
 import { neon } from '@neondatabase/serverless';
+import nodemailer from 'nodemailer';
 import { waitUntil } from '@vercel/functions';
 import { createCipheriv, createDecipheriv, createHmac, createHash, sign as cryptoSign, pbkdf2, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
 
@@ -71,8 +72,24 @@ function validEmail(value) { return value.length <= 254 && /^[^\s@]+@[^\s@]+\.[^
 function emailCodeHash(userId, code) { return createHmac('sha256', dataEncryptionKey).update(`${userId}:${code}`).digest('hex'); }
 
 async function sendMail(to, subject, text) {
+  const smtpUser = String(process.env.SMTP_USER || '').trim();
+  const smtpPassword = String(process.env.SMTP_PASSWORD || '').replace(/\s/g, '');
+  const smtpHost = String(process.env.SMTP_HOST || 'smtp.gmail.com').trim();
+  const smtpPort = Number(process.env.SMTP_PORT || 465);
+  const from = String(process.env.EMAIL_FROM || smtpUser).trim();
+  if (smtpUser && smtpPassword) {
+    const transport = nodemailer.createTransport({
+      host: smtpHost, port: smtpPort, secure: process.env.SMTP_SECURE ? process.env.SMTP_SECURE === 'true' : smtpPort === 465,
+      auth: { user: smtpUser, pass: smtpPassword }, connectionTimeout: 10000, greetingTimeout: 10000, socketTimeout: 15000
+    });
+    try { await transport.sendMail({ from, to, subject, text }); }
+    catch (error) {
+      console.error('Falha no envio SMTP:', error.code || error.responseCode || 'smtp_error');
+      throw Object.assign(new Error('Não foi possível enviar o e-mail. Confira as credenciais e a configuração SMTP.'), { status: 502 });
+    } finally { transport.close(); }
+    return;
+  }
   const apiKey = String(process.env.RESEND_API_KEY || '').trim();
-  const from = String(process.env.EMAIL_FROM || '').trim();
   if (!apiKey || !from) throw Object.assign(new Error('Envio de e-mail indisponível. Configure RESEND_API_KEY e EMAIL_FROM na Vercel.'), { status: 503 });
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST', headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
@@ -83,6 +100,12 @@ async function sendMail(to, subject, text) {
     console.error('Falha no envio de e-mail:', response.status, body.name || body.statusCode || 'provider_error');
     throw Object.assign(new Error('Não foi possível enviar o e-mail agora. Confira a configuração do remetente e tente novamente.'), { status: 502 });
   }
+}
+
+function emailDeliveryConfigured() {
+  const smtpUser = String(process.env.SMTP_USER || '').trim();
+  const smtpPassword = String(process.env.SMTP_PASSWORD || '').trim();
+  return Boolean((smtpUser && smtpPassword) || (String(process.env.RESEND_API_KEY || '').trim() && String(process.env.EMAIL_FROM || '').trim()));
 }
 
 async function createEmailCode(userId, email, purpose) {
@@ -1016,7 +1039,7 @@ async function main() {
         if ((await getRateLimit('reset-email', remote, 15 * 60 * 1000)).count >= 4) { send(res, 429, { error: 'Muitas solicitações. Aguarde 15 minutos e tente novamente.' }); return; }
         const body = await readJson(req), email = normalizeEmail(body.email);
         if (!validEmail(email)) { send(res, 400, { error: 'Informe um e-mail válido.' }); return; }
-        if (!String(process.env.RESEND_API_KEY || '').trim() || !String(process.env.EMAIL_FROM || '').trim()) { send(res, 503, { error: 'Recuperação por e-mail indisponível: configure RESEND_API_KEY e EMAIL_FROM no servidor.' }); return; }
+        if (!emailDeliveryConfigured()) { send(res, 503, { error: 'Recuperação por e-mail indisponível: configure SMTP_USER e SMTP_PASSWORD, ou RESEND_API_KEY e EMAIL_FROM no servidor.' }); return; }
         const auth = await dbGet('SELECT id, email FROM users WHERE lower(email) = lower(?) AND email_verified_at IS NOT NULL', email);
         await incrementRateLimit('reset-email', remote, 15 * 60 * 1000);
         if (auth) {
