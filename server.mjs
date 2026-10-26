@@ -153,13 +153,13 @@ async function getUserCount() {
 async function getUserData(userId, key, fallback = null) {
   const row = await dbGet('SELECT value FROM user_data WHERE user_id = ? AND data_key = ?', userId, key);
   if (!row) return fallback;
-  try { return JSON.parse(row.value); } catch { return fallback; }
+  try { return JSON.parse(await readUserDataValue(userId, key, row.value)); } catch { return fallback; }
 }
 
 async function setUserData(userId, key, value) {
   await dbRun(`INSERT INTO user_data (user_id, data_key, value, updated_at) VALUES (?, ?, ?, ?)
     ON CONFLICT(user_id, data_key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
-    userId, key, JSON.stringify(value), new Date().toISOString());
+    userId, key, encryptUserDataValue(JSON.stringify(value)), new Date().toISOString());
 }
 
 async function readBradescoItem(userId) {
@@ -198,6 +198,38 @@ function decryptSecret(record) {
   const decipher = createDecipheriv('aes-256-gcm', dataEncryptionKey, Buffer.from(record.nonce, 'base64'));
   decipher.setAuthTag(Buffer.from(record.tag, 'base64'));
   return Buffer.concat([decipher.update(Buffer.from(record.ciphertext, 'base64')), decipher.final()]).toString('utf8');
+}
+
+const USER_DATA_ENCRYPTION_PREFIX = 'enc:v1:';
+
+function encryptUserDataValue(value) {
+  return USER_DATA_ENCRYPTION_PREFIX + JSON.stringify(encryptSecret(value));
+}
+
+async function readUserDataValue(userId, dataKey, storedValue) {
+  if (storedValue.startsWith(USER_DATA_ENCRYPTION_PREFIX)) {
+    return decryptSecret(JSON.parse(storedValue.slice(USER_DATA_ENCRYPTION_PREFIX.length)));
+  }
+  const encryptedValue = encryptUserDataValue(storedValue);
+  await dbRun('UPDATE user_data SET value = ? WHERE user_id = ? AND data_key = ? AND value = ?', encryptedValue, userId, dataKey, storedValue);
+  return storedValue;
+}
+
+async function migrateUserDataEncryption() {
+  const marker = 'user_data_encryption_v1';
+  if (await dbGet('SELECT 1 FROM app_meta WHERE key = ?', marker)) return;
+  let migrated = 0;
+  while (true) {
+    const rows = await dbAll('SELECT user_id, data_key, value FROM user_data WHERE value NOT LIKE ? LIMIT 100', `${USER_DATA_ENCRYPTION_PREFIX}%`);
+    if (!rows.length) break;
+    for (let index = 0; index < rows.length; index += 25) {
+      const batch = rows.slice(index, index + 25);
+      await Promise.all(batch.map(row => dbRun('UPDATE user_data SET value = ? WHERE user_id = ? AND data_key = ? AND value = ?', encryptUserDataValue(row.value), row.user_id, row.data_key, row.value)));
+    }
+    migrated += rows.length;
+  }
+  await dbRun('INSERT INTO app_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING', marker, new Date().toISOString());
+  console.info('[security]', JSON.stringify({ event: 'user_data_encryption_migrated', rows: migrated }));
 }
 
 async function initializeEncryptionKey() {
@@ -295,6 +327,7 @@ async function initializeDatabase() {
   }
   await dbExec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_lower ON users (lower(email)) WHERE email IS NOT NULL;');
   if (databaseUrl) await dbExec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_lower ON users (lower(username));');
+  await migrateUserDataEncryption();
 
   const legacyAuth = await readLegacyJson(AUTH_FILE);
   if (legacyAuth?.username && legacyAuth?.salt && legacyAuth?.hash) {
@@ -1233,7 +1266,7 @@ async function main() {
           const rows = await dbAll('SELECT data_key, value FROM user_data WHERE user_id = ? AND data_key LIKE ?', session.userId, 'browser:%');
           const data = {};
           for (const row of rows) {
-            try { data[row.data_key.slice('browser:'.length)] = JSON.parse(row.value); } catch {}
+            try { data[row.data_key.slice('browser:'.length)] = JSON.parse(await readUserDataValue(session.userId, row.data_key, row.value)); } catch {}
           }
           const marker = await dbGet('SELECT 1 FROM app_meta WHERE key = ?', `legacy_browser_imported:${session.userId}`);
           send(res, 200, { userId: session.userId, username: session.username, data, legacyImportAllowed: session.userId === await getLegacyOwnerId() && !marker });
