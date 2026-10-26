@@ -138,6 +138,7 @@
     renderFixedAnnualChart();
     renderCardPurchases();
     renderCardProjection();
+    renderCardInvoiceChart();
     renderMonthlyWeeklyChart();
     renderMonthlyAllocationChart();
     renderInvestments();
@@ -257,7 +258,34 @@
       container.append(group);
     }
     $('#cardPurchasesEmpty').hidden=cards.length>0;
-  }  function renderCardProjection(){
+  }  function renderCardInvoiceChart(){
+    const legend=$('#cardInvoiceLegend'),chart=$('#cardInvoiceChart'),empty=$('#cardInvoiceEmpty'),yearSelect=$('#cardInvoiceYear');
+    legend.replaceChildren();chart.replaceChildren();empty.hidden=true;
+    const periodsByTransaction=transactions.filter(item=>item.cardId&&item.type==='expense').map(transaction=>({transaction,periods:cardPaymentSchedule(transaction,cards.find(card=>String(card.id)===String(transaction.cardId))).map(payment=>payment.monthKey)}));
+    const years=new Set([today.getFullYear()]);
+    for(const entry of periodsByTransaction)for(const period of entry.periods){const year=Number(String(period).slice(0,4));if(Number.isInteger(year))years.add(year);}
+    const priorYear=Number(yearSelect.value);yearSelect.replaceChildren();
+    for(const year of [...years].sort((left,right)=>right-left)){const option=document.createElement('option');option.value=String(year);option.textContent=String(year);yearSelect.append(option);}
+    const selectedYear=years.has(priorYear)?priorYear:today.getFullYear();yearSelect.value=String(selectedYear);
+    if(!cards.length){empty.hidden=false;empty.textContent='Cadastre um cartão para consultar as faturas por mês.';return;}
+    const palette=['#245b48','#d17d52','#527da8','#9a6ab0','#c39b35','#3d9b9a','#b75b68','#78845a'];
+    const series=cards.map((card,index)=>({card,color:palette[index%palette.length]}));
+    for(const item of series){const legendItem=document.createElement('span');legendItem.className='card-projection-legend-item';const swatch=document.createElement('i');swatch.className='card-projection-swatch';swatch.style.backgroundColor=item.color;const name=document.createElement('span');name.textContent=item.card.name;legendItem.append(swatch,name);legend.append(legendItem);}
+    const months=Array.from({length:12},(_,index)=>new Date(selectedYear,index,1));
+    const totalsByMonth=new Map(months.map(date=>[monthKey(date),new Map(cards.map(card=>[String(card.id),0]))]));
+    const importedMonths=new Set(transactions.filter(item=>item.statementBatchId&&item.cardId&&String(item.statementMonth||'').startsWith(String(selectedYear))).map(item=>String(item.cardId)+'|'+String(item.statementMonth)));
+    for(const {transaction,periods} of periodsByTransaction){
+      const cardId=String(transaction.cardId);
+      if(transaction.statementBatchId&&transaction.statementMonth){const month=String(transaction.statementMonth);if(!month.startsWith(String(selectedYear)))continue;const totals=totalsByMonth.get(month);if(totals)totals.set(cardId,(totals.get(cardId)||0)+Number(transaction.amount||0));continue;}
+      const card=cards.find(item=>String(item.id)===cardId);if(!card)continue;
+      for(const payment of cardPaymentSchedule(transaction,card)){if(!payment.monthKey.startsWith(String(selectedYear))||importedMonths.has(cardId+'|'+payment.monthKey))continue;const totals=totalsByMonth.get(payment.monthKey);if(totals)totals.set(cardId,(totals.get(cardId)||0)+Number(payment.amount||0));}
+    }
+    const monthRows=months.map(date=>{const cardTotals=totalsByMonth.get(monthKey(date));return{date,cardTotals,total:[...cardTotals.values()].reduce((sum,value)=>sum+value,0)};});
+    const maxTotal=Math.max(0,...monthRows.map(item=>item.total));
+    if(maxTotal<=0){empty.hidden=false;empty.textContent='Nenhuma fatura ou compra de cartão registrada para '+selectedYear+'.';return;}
+    for(const item of monthRows){const column=document.createElement('div');column.className='card-projection-column';const total=document.createElement('strong');total.className='card-projection-total';total.textContent=money(item.total);const track=document.createElement('div');track.className='card-projection-track';const bar=document.createElement('div');bar.className='card-projection-bar';bar.style.height=item.total?String(Math.max(2,item.total/maxTotal*100))+'%':'0%';for(const entry of series){const amount=item.cardTotals.get(String(entry.card.id))||0;if(amount<=0)continue;const segment=document.createElement('span');segment.className='card-projection-segment';segment.style.height=String(amount/item.total*100)+'%';segment.style.backgroundColor=entry.color;segment.title=entry.card.name+': '+money(amount);segment.setAttribute('aria-label',entry.card.name+': '+money(amount));bar.append(segment);}track.append(bar);const label=document.createElement('span');label.className='card-projection-month';label.textContent=new Intl.DateTimeFormat('pt-BR',{month:'short'}).format(item.date).replace('.','');column.append(total,track,label);chart.append(column);}
+  }
+  function renderCardProjection(){
     const legend=$('#cardProjectionLegend');const chart=$('#cardProjectionChart');const empty=$('#cardProjectionEmpty');legend.replaceChildren();chart.replaceChildren();empty.hidden=true;
     if(!cards.length){empty.hidden=false;empty.textContent='Cadastre um cartão e registre compras para visualizar as despesas futuras.';return;}
     const palette=['#245b48','#d17d52','#527da8','#9a6ab0','#c39b35','#3d9b9a','#b75b68','#78845a'];const cardSeries=cards.map((card,index)=>({card,color:palette[index%palette.length]}));
@@ -266,7 +294,7 @@
     for(const transaction of transactions){if(transaction.type!=='expense'||!transaction.cardId)continue;const card=cards.find(item=>String(item.id)===String(transaction.cardId));if(!card)continue;for(const payment of cardPaymentSchedule(transaction,card)){const cardTotals=monthTotals.get(payment.monthKey);if(cardTotals)cardTotals.set(String(card.id),(cardTotals.get(String(card.id))||0)+payment.amount);}}
     const totals=months.map(date=>{const cardTotals=monthTotals.get(monthKey(date));return{date,cardTotals,total:[...cardTotals.values()].reduce((sum,value)=>sum+value,0)};});const maxTotal=Math.max(0,...totals.map(item=>item.total));
     if(maxTotal===0){empty.hidden=false;empty.textContent='Nenhuma compra ou parcela prevista para os próximos 6 meses.';return;}
-    for(const item of totals){const column=document.createElement('div');column.className='card-projection-column';const total=document.createElement('strong');total.className='card-projection-total';total.textContent=money(item.total);const track=document.createElement('div');track.className='card-projection-track';const bar=document.createElement('div');bar.className='card-projection-bar';bar.style.height=`${item.total?Math.max(2,item.total/maxTotal*100):0}%`;for(const series of cardSeries){const amount=item.cardTotals.get(String(series.card.id))||0;if(amount<=0)continue;const segment=document.createElement('span');segment.className='card-projection-segment';segment.style.height=`${amount/item.total*100}%`;segment.style.backgroundColor=series.color;segment.title=`${series.card.name}: ${money(amount)}`;segment.setAttribute('aria-label',`${series.card.name}: ${money(amount)}`);if(amount/maxTotal>=0.16){segment.classList.add('card-projection-segment-value');segment.textContent=Math.round(amount).toLocaleString('pt-BR');}bar.append(segment);}track.append(bar);const label=document.createElement('span');label.className='card-projection-month';label.textContent=new Intl.DateTimeFormat('pt-BR',{month:'short',year:'numeric'}).format(item.date).replace('.','');column.append(total,track,label);chart.append(column);}
+    for(const item of totals){const column=document.createElement('div');column.className='card-projection-column';const total=document.createElement('strong');total.className='card-projection-total';total.textContent=money(item.total);const track=document.createElement('div');track.className='card-projection-track';const bar=document.createElement('div');bar.className='card-projection-bar';bar.style.height=`${item.total?Math.max(2,item.total/maxTotal*100):0}%`;for(const series of cardSeries){const amount=item.cardTotals.get(String(series.card.id))||0;if(amount<=0)continue;const segment=document.createElement('span');segment.className='card-projection-segment';segment.style.height=`${amount/item.total*100}%`;segment.style.backgroundColor=series.color;segment.title=`${series.card.name}: ${money(amount)}`;segment.setAttribute('aria-label',`${series.card.name}: ${money(amount)}`);bar.append(segment);}track.append(bar);const label=document.createElement('span');label.className='card-projection-month';label.textContent=new Intl.DateTimeFormat('pt-BR',{month:'short',year:'numeric'}).format(item.date).replace('.','');column.append(total,track,label);chart.append(column);}
   }
   function renderInvestments(){
     const selectedMonth=$('#investmentMonthFilter').value||monthKey(today);const monthItems=investments.filter(item=>String(item.date).slice(0,7)===selectedMonth).sort((a,b)=>b.date.localeCompare(a.date));const monthly=monthItems.filter(item=>(item.movement||'contribution')==='contribution').reduce((sum,item)=>sum+Number(item.amount||0),0);const accumulated=investments.reduce((sum,item)=>sum+((item.movement||'contribution')==='withdrawal'?-1:1)*Number(item.amount||0),0);const target=monthlyIncome*.1;const pct=target?Math.round(monthly/target*100):0;
@@ -373,6 +401,7 @@
   $('#cryptoExchangeSelect').addEventListener('change',()=>{if(!syncedBinance)syncedBinance={balances:[],exchanges:{}};syncedBinance.selectedExchange=selectedCryptoExchange();localStorage.setItem(BINANCE_BALANCES_KEY,JSON.stringify(syncedBinance));updateCryptoExchangeForm();});
   $('#refreshCryptoQuotes').addEventListener('click',async()=>{await Promise.all([updateCryptoQuoteRows(getCryptoPositions(),true),updateCryptoQuoteRows(investments.filter(item=>item.kind==='Criptoativos'),true,false)]);await renderInvestmentAllocation();});
   $('#syncBinance').addEventListener('click',syncCryptoExchangeAccount);
+  $('#cardInvoiceYear').addEventListener('change',renderCardInvoiceChart);
   $('#binanceCredentialForm').addEventListener('submit',async event=>{
     event.preventDefault();const form=event.currentTarget,provider=selectedCryptoExchange(),spec=cryptoExchangeOptions[provider];
     const button=form.querySelector('button[type=submit]'),status=$('#binanceCredentialStatus');const credentials=Object.fromEntries(new FormData(form));
