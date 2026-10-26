@@ -154,6 +154,7 @@
     const scheduledCardTotal=period=>transactions.filter(t=>t.type==='expense'&&(t.paymentMethod==='cartao'||t.cardId)).reduce((sum,t)=>{const card=cards.find(item=>String(item.id)===String(t.cardId));return sum+cardPaymentSchedule(t,card).filter(payment=>payment.monthKey===period).reduce((monthSum,payment)=>monthSum+payment.amount,0);},0);
     const currentCardInvoice=transactions.filter(t=>t.type==='expense'&&(t.paymentMethod==='cartao'||t.cardId)&&monthKey(parseDate(t.date))===currentMonth).reduce((sum,t)=>{const installments=Math.min(120,Math.max(1,Number(t.installments)||1)),amount=Number(t.amount)||0;const monthlyPurchaseAmount=installments>1&&!t.statementBatchId?Math.ceil(Math.round(amount*100)/installments)/100:amount;return sum+monthlyPurchaseAmount;},0),nextMonthCardExpenses=scheduledCardTotal(nextMonth);
     $('#cardShare').textContent=money(Math.max(0,monthlyIncome*0.4-nextMonthCardExpenses));
+    $('#cardBudgetBreakdown').textContent=`${money(monthlyIncome*0.4)} − ${money(nextMonthCardExpenses)} de despesas futuras = ${money(Math.max(0,monthlyIncome*0.4-nextMonthCardExpenses))} previstos para o mês`;
     budget=Math.max(0,(monthlyIncome*0.4-nextMonthCardExpenses)/4);
     const periodBudget=isMonth?budget*4:budget;
     const realizedExpense=realizedExpenseInRange(rangeStart,rangeEnd)+(isMonth?nextMonthCardExpenses:nextMonthCardExpenses/4);
