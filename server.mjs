@@ -1065,7 +1065,7 @@ async function main() {
       if (req.method === 'POST' && pathname === '/api/password-reset/request') {
         const diagnosticId = randomUUID();
         const remote = requestAddress(req);
-        if ((await getRateLimit('reset-email', remote, 15 * 60 * 1000)).count >= 4) { send(res, 429, { error: 'Muitas solicitações. Aguarde 15 minutos e tente novamente.' }); return; }
+        if ((await getRateLimit('reset-email', remote, 15 * 60 * 1000)).count >= 20) { send(res, 429, { error: 'Por segurança, aguarde alguns minutos antes de pedir outro código.' }); return; }
         const body = await readJson(req), email = normalizeEmail(body.email);
         if (!validEmail(email)) { send(res, 400, { error: 'Informe um e-mail válido.' }); return; }
         if (!emailDeliveryConfigured()) { console.error('[password-reset-email]', JSON.stringify({ event: 'password_reset_delivery_unconfigured', diagnosticId, smtpUserConfigured: Boolean(String(process.env.SMTP_USER || '').trim()), smtpPasswordConfigured: Boolean(String(process.env.SMTP_PASSWORD || '').trim()), resendConfigured: Boolean(String(process.env.RESEND_API_KEY || '').trim() && String(process.env.EMAIL_FROM || '').trim()) })); send(res, 503, { error: 'Recuperação por e-mail indisponível: configure SMTP_USER e SMTP_PASSWORD, ou RESEND_API_KEY e EMAIL_FROM no servidor.' }); return; }
