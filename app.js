@@ -678,7 +678,7 @@
     if(!selected)throw new Error('O CSV não foi reconhecido. Procure cabeçalhos Data e Valor, ou Data, Crédito e Débito.');
     const {rows,headerIndex,headers}=selected;
     const find=(keys)=>headers.findIndex(h=>keys.some(k=>h===k||h.startsWith(k+' ')||h.includes(k)));
-    const dateIndex=find(['data','date','dt']);let descIndex=headers.findIndex((h,index)=>index!==dateIndex&&/(descricao|historico|memo|favorecido|beneficiario|detalhe|lancamento)/.test(h));const categoryIndex=find(['categoria']),typeIndex=find(['tipo','natureza']);
+    const dateIndex=find(['data','date','dt']);let descIndex=headers.findIndex((h,index)=>index!==dateIndex&&/(descricao|historico|memo|favorecido|beneficiario|detalhe|lancamento|estabelecimento|estab|merchant|loja|comerciante|comercio|nome fantasia|nome do local)/.test(h));const categoryIndex=find(['categoria']),typeIndex=find(['tipo','natureza']);
     let amountIndex=headers.findIndex(h=>/^(amount|quantia|valor)( |$)/.test(h)&&!/(saldo|credito|debito)/.test(h));
     let creditIndex=headers.findIndex(h=>/(credito|entrada|deposito)/.test(h)&&!h.includes('saldo'));
     let debitIndex=headers.findIndex(h=>/(debito|saida|retirada)/.test(h)&&!h.includes('saldo'));
