@@ -1,4 +1,4 @@
- (async () => {
+(async () => {
   'use strict';
   const baseKeys = {
     TX_KEY: 'meu-controle-financeiro-transactions-v1',
@@ -164,7 +164,7 @@
     const planningMonthDate=new Date(Number(planningMonth.slice(0,4)),Number(planningMonth.slice(5,7))-1,1);
     const nextMonth=monthKey(new Date(planningMonthDate.getFullYear(),planningMonthDate.getMonth()+1,1));
     const scheduledCardTotal=period=>transactions.filter(t=>t.type==='expense'&&(t.paymentMethod==='cartao'||t.cardId)).reduce((sum,t)=>{const card=cards.find(item=>String(item.id)===String(t.cardId));return sum+cardPaymentSchedule(t,card).filter(payment=>payment.monthKey===period).reduce((monthSum,payment)=>monthSum+payment.amount,0);},0);
-    const currentCardInvoice=transactions.filter(t=>t.type==='expense'&&(t.paymentMethod==='cartao'||t.cardId)&&monthKey(parseDate(t.date))===currentMonth).reduce((sum,t)=>{const installments=Math.min(120,Math.max(1,Number(t.installments)||1)),amount=Number(t.amount)||0;const monthlyPurchaseAmount=installments>1&&!t.statementBatchId?Math.ceil(Math.round(amount*100)/installments)/100:amount;return sum+monthlyPurchaseAmount;},0),nextMonthCardExpenses=scheduledCardTotal(nextMonth);
+    const currentCardInvoice=transactions.filter(t=>{if(t.paymentMethod!=='cartao'&&!t.cardId)return false;if(t.statementBatchId)return String(t.statementMonth||'')===currentMonth;return t.type==='expense'&&monthKey(parseDate(t.date))===currentMonth;}).reduce((sum,t)=>{const amount=Number(t.amount)||0;if(t.statementBatchId)return sum+(t.type==='income'?-1:1)*amount;if(t.type!=='expense')return sum;const installments=Math.min(120,Math.max(1,Number(t.installments)||1));const monthlyPurchaseAmount=installments>1?Math.ceil(Math.round(amount*100)/installments)/100:amount;return sum+monthlyPurchaseAmount;},0),nextMonthCardExpenses=scheduledCardTotal(nextMonth);
     $('#cardShare').textContent=money(Math.max(0,monthlyIncome*allocation.card/100-nextMonthCardExpenses));
     $('#cardBudgetBreakdown').textContent=`${money(monthlyIncome*allocation.card/100)} − ${money(nextMonthCardExpenses)} de despesas futuras = ${money(Math.max(0,monthlyIncome*allocation.card/100-nextMonthCardExpenses))} previstos para o mês`;
     budget=Math.max(0,(monthlyIncome*allocation.card/100-nextMonthCardExpenses)/4);
