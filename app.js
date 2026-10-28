@@ -208,6 +208,9 @@
     $('.progress-track').setAttribute('aria-valuenow',String(shown)); $('#progressPercent').textContent=`${percent}%`; $('#progressPercent').classList.toggle('over',periodBudget>0&&realizedExpense>periodBudget);
     $('#remainingLabel').textContent=monthlyIncome<=0?'Defina sua renda mensal':realizedExpense>periodBudget?`Você passou ${money(realizedExpense-periodBudget)} do limite`: `Restam ${money(periodBudget-realizedExpense)} no limite`;
     renderAllTransactions();
+    $('#balanceValue').textContent=$('#bankAccountBalance').textContent;
+    const overviewAccount=bankAccounts.find(account=>String(account.id)===String(selectedBankAccountId));
+    $('#overviewBalanceCaption').textContent=`${overviewAccount?.name||'Conta principal'} · Mesmo saldo atual das transações bancárias`;
     renderCards();
     renderFixedCosts();
     renderFixedAnnualChart();
