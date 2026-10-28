@@ -182,7 +182,7 @@
     $('#fixedShare').textContent=money(monthlyIncome*allocation.fixed/100); $('#fixedCurrentValue').textContent=money(fixedMonthlyTotal()); $('#cardShare').textContent=money(monthlyIncome*allocation.card/100); $('#investmentShare').textContent=money(monthlyIncome*allocation.investment/100);
     document.querySelectorAll('.allocation-percent').forEach((node,index)=>node.textContent=`${[allocation.fixed,allocation.card,allocation.investment][index]}%`);
     $('#fixedAllowanceLabel').textContent=`Limite mensal · ${allocation.fixed}% da renda`;$('#investmentTargetLabel').textContent=`Meta mensal · ${allocation.investment}% da renda`;
-    $('#allocationPlanLabel').textContent=`PLANEJAMENTO ${allocation.fixed}/${allocation.card}/${allocation.investment} · MONITORAMENTO AUTOMÁTICO`;
+    $('#allocationPlanLabel').textContent='PLANEJAMENTO · MONITORAMENTO AUTOMÁTICO';
     $('#allocationSettingsCurrent').textContent=`Fixos ${allocation.fixed}% · Cartão ${allocation.card}% · Investimento ${allocation.investment}%`;
     const currentMonth=monthKey(today);
     const planningMonth=isMonth?monthKey(monthStart):currentMonth;
