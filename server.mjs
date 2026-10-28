@@ -1054,7 +1054,7 @@ async function initializeDatabaseWithRetry() {
   const maxAttempts = 3;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
-      await initializeDatabaseWithRetry();
+      await initializeDatabase();
       return;
     } catch (error) {
       const details = [];
@@ -1081,7 +1081,7 @@ async function main() {
     if (!String(process.env.APP_ENCRYPTION_KEY || '').trim()) throw new Error('Em produção, configure APP_ENCRYPTION_KEY e mantenha uma cópia segura dessa chave.');
   }
   if (!process.env.DATABASE_URL) await mkdir(DATA_DIR, { recursive: true });
-  await initializeDatabase();
+  await initializeDatabaseWithRetry();
   applicationHandler = async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     const pathname = url.pathname;
