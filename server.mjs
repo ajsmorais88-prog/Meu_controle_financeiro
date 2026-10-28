@@ -1,7 +1,3 @@
-Warning: truncated output (original token count: 31471)
-Total output lines: 1670
-
-Attempting to perform the InitializeDefaultDrives operation on the 'FileSystem' provider failed.
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -697,7 +693,7 @@ function accessPage(mode, nonce) {
   const setupRequired = mode === 'register';
   const forgot = mode === 'forgot';
   const heading = setupRequired ? 'Crie sua conta' : forgot ? 'Redefina sua senha' : 'Acesse seu controle';
-  const detail = setupRequired ? 'Cadastre seu usuário, e-mail e senha. O e-mail será usado para verificar sua conta e recuperar o acesso.' : forgot ? 'Informe o e-mail verificado da sua conta para receber um código temporário.' : 'Entre para continuar para seu painel financeiro.';
+  const detail = setupRequired ? 'Cadastre seu usuário, e-mail e senha. O e-mail será usado para verificar sua conta e recuperar o acesso.' : forgot ? 'Informe o e-mail cadastrado para receber um código temporário.' : 'Entre para continuar para seu painel financeiro.';
   const passwordField = `<label>Senha<input name="password" type="password" autocomplete="${setupRequired ? 'new-password' : 'current-password'}" required minlength="${setupRequired ? '12' : '1'}"></label>${setupRequired ? '<label>Confirme a senha<input name="confirmPassword" type="password" autocomplete="new-password" required minlength="12"></label>' : ''}`;
   const route = setupRequired ? '/api/setup' : forgot ? '/api/password-reset' : '/api/login';
   const submit = setupRequired ? 'Criar conta' : forgot ? 'Salvar nova senha' : 'Entrar';
@@ -709,11 +705,11 @@ function accessPage(mode, nonce) {
       ? `<form id="requestEmail"><label>E-mail da conta<input name="email" type="email" autocomplete="email" required maxlength="254"></label><button>Enviar código por e-mail</button><div class="error" id="requestError" role="alert"></div><div class="success" id="requestSuccess" hidden></div></form><form id="emailReset" hidden><label>E-mail da conta<input name="email" type="email" autocomplete="email" required maxlength="254"></label><label>Código enviado por e-mail<input name="code" autocomplete="one-time-code" inputmode="numeric" required minlength="8" maxlength="8"></label><label>Nova senha<input name="password" type="password" autocomplete="new-password" required minlength="12"></label><label>Confirme a nova senha<input name="confirmPassword" type="password" autocomplete="new-password" required minlength="12"></label><button>Redefinir senha</button><div class="error" id="emailResetError" role="alert"></div></form><form id="recoveryReset" hidden><label>Usuário<input name="username" autocomplete="username" required minlength="3" maxlength="40"></label><label>Código de recuperação salvo no cadastro<input name="recoveryCode" autocomplete="one-time-code" required minlength="10"></label><label>Nova senha<input name="password" type="password" autocomplete="new-password" required minlength="12"></label><label>Confirme a nova senha<input name="confirmPassword" type="password" autocomplete="new-password" required minlength="12"></label><button>Redefinir com código de recuperação</button><div class="error" id="recoveryError" role="alert"></div></form><nav class="links"><a href="#" id="toggleRecovery">Usar código de recuperação</a></nav>`
       : `<form id="access"><label>Usuário<input name="username" autocomplete="username" required minlength="3" maxlength="40"></label>${passwordField}<button>${submit}</button><div class="error" id="error" role="alert"></div><div class="success" id="success" hidden></div></form>`;
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>${heading} · Minhas Finanças</title><style nonce="${nonce}">
-  *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f7f8f5;color:#18332d;font:14px Arial,sans-serif}.box{width:min(420px,calc(100% - 32px));background:#fff;border:1px solid #e8ece9;border-radius:16px;padding:30px;box-shadow:0 18px 55px #18332d12}.brand{display:flex;align-items:center;gap:9px;font-weight:bold;font-size:18px;margin-bottom:28px;text-decoration:none;color:inherit}.mark{display:grid;place-items:center;width:36px;height:36px;border-radius:11px;background:linear-gradient(145deg,#28755f,#173c31);color:#fff}.mark svg{width:25px;height:25px}.eyebrow{font-size:9px;font-weight:bold;letter-spacing:1.5px;color:#87938d}h1{font-size:24px;margin:8px 0}.copy{font-size:12px;line-height:1.6;color:#78837f;margin-bottom:22px}label{display:flex;flex-direction:column;gap:7px;margin:14px 0;color:#64716a;font-size:11px}input{height:42px;border:1px solid #e1e7e2;border-radius:7px;padding:0 10px;font-size:13px}button{width:100%;border:0;border-radius:8px;background:#215a47;color:#fff;padding:13px;font-size:12px;font-weight:bold;margin-top:9px;cursor:pointer}.hint{font-size:11px;line-height:1.6;color:#748179;margin-top:14px}.error{min-height:16px;color:#aa5947;font-size:11px;margin-top:12px}.success{padding:12px;background:#eff7f1;border:1px solid #d5e7d8;border-radius:8px;color:#245d43;font-size:12px;line-height:1.6;overflow-wrap:anywhere}.links{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:16px}.links a{font-size:11px;color:#28664d}.back{display:block;font-size:11px;color:#728078;text-decoration:none;margin-top:18px}@media(max-width:430px){.box{padding:24px}}.forgot-page{grid-template-columns:minmax(320px,420px) minmax(280px,360px);align-content:center;gap:16px;padding:20px}.forgot-page .box{width:100%;margin:0}.debug-panel{width:100%;align-self:center;padding:22px;border:1px solid #dce8df;border-radius:16px;background:#fff;box-shadow:0 18px 55px #18332d12}.debug-heading span{color:#6b8775;font-size:9px;font-weight:bold;letter-spacing:1px}.debug-heading h2{margin:8px 0;font-size:18px}.debug-panel>p{color:#718078;font-size:11px;line-height:1.55}.debug-panel dl{display:grid;grid-template-columns:76px minmax(0,1fr);gap:9px;margin:18px 0;font-size:11px}.debug-panel dt{color:#718078}.debug-panel dd{margin:0;color:#244f41;font-weight:700;overflow-wrap:anywhere}.debug-panel .debug-note{padding:10px;border-radius:8px;background:#f4f7f4}.debug-panel button{font-size:11px;padding:10px}.forgot-page [hidden]{display:none!important}@media(max-width:760px){body.forgot-page{grid-template-columns:minmax(0,420px);align-content:start;padding:20px 0}.forgot-page .box{width:100%}.debug-panel{align-self:start}}
-  </style></head><body class="${forgot ? 'forgot-page' : ''}"><main class="box"><a class="brand" href="/"><span class="mark"><svg viewBox="0 0 40 40" aria-hidden="true"><path d="M8 28.5 16.2 20l5.1 5.2L32 13.5M25.8 13.5H32v6.2" fill="none" stroke="currentColor" stroke-width="3.3" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>Minhas Finanças</span></a><div class="eyebrow">ACESSO PROTEGIDO</div><h1>${heading}</h1><p class="copy">${detail}</p>${formMarkup}${recoveryNotice}<nav class="links">${links}</nav><a class="back" href="/">← Página de apresentação</a></main>${forgot ? '<aside class="debug-panel" id="mailDebugPanel" aria-live="polite"><div class="debug-heading"><div><span>DEPURAÇÃO TEMPORÁRIA</span><h2>Envio de recuperação</h2></div></div><p>O painel não mostra endereço, código nem credenciais. A resposta do servidor é genérica para proteger as contas.</p><dl><dt>Etapa</dt><dd id="mailDebugStage">Aguardando solicitação</dd><dt>Resposta</dt><dd id="mailDebugHttp">—</dd><dt>Duração</dt><dd id="mailDebugDuration">—</dd><dt>Referência</dt><dd id="mailDebugReference">—</dd></dl><p class="debug-note" id="mailDebugMessage">Depois de solicitar, use a referência nos Runtime Logs da Vercel para localizar o diagnóstico detalhado.</p><button type="button" id="clearMailDebug">Limpar depuração</button></aside>' : ''}<script nonce="${nonce}">
+  *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f7f8f5;color:#18332d;font:14px Arial,sans-serif}.box{width:min(420px,calc(100% - 32px));background:#fff;border:1px solid #e8ece9;border-radius:16px;padding:30px;box-shadow:0 18px 55px #18332d12}.brand{display:flex;align-items:center;gap:9px;font-weight:bold;font-size:18px;margin-bottom:28px;text-decoration:none;color:inherit}.mark{display:grid;place-items:center;width:36px;height:36px;border-radius:11px;background:linear-gradient(145deg,#28755f,#173c31);color:#fff}.mark svg{width:25px;height:25px}.eyebrow{font-size:9px;font-weight:bold;letter-spacing:1.5px;color:#87938d}h1{font-size:24px;margin:8px 0}.copy{font-size:12px;line-height:1.6;color:#78837f;margin-bottom:22px}label{display:flex;flex-direction:column;gap:7px;margin:14px 0;color:#64716a;font-size:11px}input{height:42px;border:1px solid #e1e7e2;border-radius:7px;padding:0 10px;font-size:13px}button{width:100%;border:0;border-radius:8px;background:#215a47;color:#fff;padding:13px;font-size:12px;font-weight:bold;margin-top:9px;cursor:pointer}.hint{font-size:11px;line-height:1.6;color:#748179;margin-top:14px}.error{min-height:16px;color:#aa5947;font-size:11px;margin-top:12px}.success{padding:12px;background:#eff7f1;border:1px solid #d5e7d8;border-radius:8px;color:#245d43;font-size:12px;line-height:1.6;overflow-wrap:anywhere}.links{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:16px}.links a{font-size:11px;color:#28664d}.back{display:block;font-size:11px;color:#728078;text-decoration:none;margin-top:18px}@media(max-width:430px){.box{padding:24px}}.forgot-page [hidden]{display:none!important}
+  </style></head><body class=""><main class="box"><a class="brand" href="/"><span class="mark"><svg viewBox="0 0 40 40" aria-hidden="true"><path d="M8 28.5 16.2 20l5.1 5.2L32 13.5M25.8 13.5H32v6.2" fill="none" stroke="currentColor" stroke-width="3.3" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>Minhas Finanças</span></a><div class="eyebrow">ACESSO PROTEGIDO</div><h1>${heading}</h1><p class="copy">${detail}</p>${formMarkup}${recoveryNotice}<nav class="links">${links}</nav><a class="back" href="/">← Página de apresentação</a></main><script nonce="${nonce}">
   const post=async(path,data)=>{const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const result=await response.json();if(!response.ok)throw new Error(result.error||'Não foi possível concluir.');return result};const show=id=>message=>{document.querySelector(id).textContent=message};
   ${setupRequired || !forgot ? `document.querySelector('#access').addEventListener('submit',async event=>{event.preventDefault();const form=event.currentTarget,data=Object.fromEntries(new FormData(form));${setupRequired ? "if(data.password!==data.confirmPassword){show('#error')('As senhas não conferem.');return;}" : ''}try{const result=await post('${route}',data);if(result.recoveryCode){form.hidden=true;document.querySelector('.links').hidden=true;document.querySelector('.copy').textContent='Conta criada. Guarde os códigos exibidos e verifique seu e-mail na área da conta.';const message=document.querySelector('#success');message.hidden=false;message.textContent='Código de recuperação (exibido uma única vez): '+result.recoveryCode+(result.emailVerificationSent?' · Código de verificação enviado para '+data.email:result.emailMessage?' · '+result.emailMessage:'');const next=document.createElement('a');next.href='/';next.className='button-link';next.style.cssText='display:block;text-align:center;padding:13px;margin-top:16px;border-radius:8px;background:#215a47;color:#fff;text-decoration:none;font-size:12px;font-weight:bold';next.textContent='Acessar o painel';document.querySelector('.box').append(next);return;}location.replace('/')}catch(error){show('#error')(error.message)}});` : ''}
-  ${forgot ? `const requestForm=document.querySelector('#requestEmail'),resetForm=document.querySelector('#emailReset'),recoveryForm=document.querySelector('#recoveryReset');let useRecovery=false;requestForm.addEventListener('submit',async event=>{event.preventDefault();const email=requestForm.elements.email.value.trim(),debugStarted=performance.now();let debugReference='—';try{const debugResponse=await fetch('/api/password-reset/request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email})}),debugResult=await debugResponse.json().catch(()=>({}));debugReference=debugResult.debug?.referenceId||'Não informado';document.querySelector('#mailDebugStage').textContent=debugResponse.ok?'Solicitação processada':'Resposta do servidor';document.querySelector('#mailDebugHttp').textContent='HTTP ' + debugResponse.status;document.querySelector('#mailDebugDuration').textContent=Math.round(performance.now()-debugStarted)+' ms';document.querySelector('#mailDebugReference').textContent=debugReference;document.querySelector('#mailDebugMessage').textContent=debugResponse.ok?'Resposta genérica por segurança; use a referência nos Runtime Logs da Vercel para verificar o envio.':(debugResult.error||'A solicitação não foi concluída.');if(!debugResponse.ok){show('#requestError')(debugResult.error||'Não foi possível solicitar a recuperação.');return;}document.querySelector('#requestSuccess').hidden=false;document.querySelector('#requestSuccess').textContent='Se o e-mail estiver verificado, enviaremos um código válido por 15 minutos.';resetForm.elements.email.value=email;requestForm.hidden=true;resetForm.hidden=false;document.querySelector('#toggleRecovery').textContent='Usar código de recuperação';}catch(error){document.querySelector('#mailDebugStage').textContent='Falha de conexão';document.querySelector('#mailDebugHttp').textContent='Sem resposta';document.querySelector('#mailDebugDuration').textContent=Math.round(performance.now()-debugStarted)+' ms';document.querySelector('#mailDebugReference').textContent=debugReference;document.querySelector('#mailDebugMessage').textContent='O navegador não concluiu a solicitação. Confira a conexão e os Runtime Logs da Vercel.';show('#requestError')(error.message||'Não foi possível conectar ao servidor.')}});resetForm.addEventListener('submit',async event=>{event.preventDefault();const data=Object.fromEntries(new FormData(resetForm));if(data.password!==data.confirmPassword){show('#emailResetError')('As senhas não conferem.');return;}try{await post('/api/password-reset/email',data);document.querySelector('.copy').textContent='Senha redefinida. Você já pode entrar com a nova senha.';resetForm.hidden=true;requestForm.hidden=true;document.querySelector('#toggleRecovery').hidden=true;}catch(error){show('#emailResetError')(error.message)}});recoveryForm.addEventListener('submit',async event=>{event.preventDefault();const data=Object.fromEntries(new FormData(recoveryForm));if(data.password!==data.confirmPassword){show('#recoveryError')('As senhas não conferem.');return;}try{await post('/api/password-reset',data);document.querySelector('.copy').textContent='Senha redefinida. Você já pode entrar com a nova senha.';recoveryForm.hidden=true;document.querySelector('#toggleRecovery').hidden=true;}catch(error){show('#recoveryError')(error.message)}});document.querySelector('#clearMailDebug').addEventListener('click',()=>{document.querySelector('#mailDebugStage').textContent='Aguardando solicitação';document.querySelector('#mailDebugHttp').textContent='—';document.querySelector('#mailDebugDuration').textContent='—';document.querySelector('#mailDebugReference').textContent='—';document.querySelector('#mailDebugMessage').textContent='Depois de solicitar, use a referência nos Runtime Logs da Vercel para localizar o diagnóstico detalhado.';});document.querySelector('#toggleRecovery').addEventListener('click',event=>{event.preventDefault();useRecovery=!useRecovery;requestForm.hidden=useRecovery;resetForm.hidden=true;recoveryForm.hidden=!useRecovery;event.currentTarget.textContent=useRecovery?'Voltar à recuperação por e-mail':'Usar código de recuperação';});` : ''}
+  ${forgot ? `const requestForm=document.querySelector('#requestEmail'),resetForm=document.querySelector('#emailReset'),recoveryForm=document.querySelector('#recoveryReset');let useRecovery=false;requestForm.addEventListener('submit',async event=>{event.preventDefault();const email=requestForm.elements.email.value.trim();try{await post('/api/password-reset/request',{email});document.querySelector('#requestSuccess').hidden=false;document.querySelector('#requestSuccess').textContent='Se o e-mail estiver cadastrado, enviaremos um código válido por 15 minutos.';resetForm.elements.email.value=email;requestForm.hidden=true;resetForm.hidden=false;document.querySelector('#toggleRecovery').textContent='Usar código de recuperação';}catch(error){show('#requestError')(error.message)}});resetForm.addEventListener('submit',async event=>{event.preventDefault();const data=Object.fromEntries(new FormData(resetForm));if(data.password!==data.confirmPassword){show('#emailResetError')('As senhas não conferem.');return;}try{await post('/api/password-reset/email',data);document.querySelector('.copy').textContent='Senha redefinida. Você já pode entrar com a nova senha.';resetForm.hidden=true;requestForm.hidden=true;document.querySelector('#toggleRecovery').hidden=true;}catch(error){show('#emailResetError')(error.message)}});recoveryForm.addEventListener('submit',async event=>{event.preventDefault();const data=Object.fromEntries(new FormData(recoveryForm));if(data.password!==data.confirmPassword){show('#recoveryError')('As senhas não conferem.');return;}try{await post('/api/password-reset',data);document.querySelector('.copy').textContent='Senha redefinida. Você já pode entrar com a nova senha.';recoveryForm.hidden=true;document.querySelector('#toggleRecovery').hidden=true;}catch(error){show('#recoveryError')(error.message)}});document.querySelector('#toggleRecovery').addEventListener('click',event=>{event.preventDefault();useRecovery=!useRecovery;requestForm.hidden=useRecovery;resetForm.hidden=true;recoveryForm.hidden=!useRecovery;event.currentTarget.textContent=useRecovery?'Voltar à recuperação por e-mail':'Usar código de recuperação';});` : ''}
   </script></body></html>`;
 }
 
@@ -779,7 +775,76 @@ function cryptoBalance(asset, free, locked = 0, extra = {}) {
 async function exchangeJson(url, options, exchangeName) {
   let response;
   try { response = await fetch(url, { ...options, signal: AbortSignal.timeout(12000), cache: 'no-store' }); }
-  catch (error) { throw Object.assign(new Error('Não foi possível conectar à API da ' + exchangeName + '. …1471 tokens truncated…et-balance?' + query, { headers: { 'X-BAPI-API-KEY': credentials.apiKey, 'X-BAPI-SIGN': signature, 'X-BAPI-TIMESTAMP': timestamp, 'X-BAPI-RECV-WINDOW': recvWindow } }, spec.name);
+  catch (error) { throw Object.assign(new Error('Não foi possível conectar à API da ' + exchangeName + '. Verifique a conexão e tente novamente.'), { status: 502 }); }
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const code = payload.code || payload.retCode || payload.error || payload.message || '';
+    throw Object.assign(new Error('A ' + exchangeName + ' recusou a consulta (HTTP ' + response.status + (code ? ', código ' + String(code).slice(0, 80) : '') + '). Confira a chave, o segredo, as permissões somente leitura e a restrição de IP.'), { status: response.status >= 400 && response.status < 600 ? response.status : 502 });
+  }
+  return payload;
+}
+
+function compactBalances(entries) {
+  const totals = new Map();
+  for (const item of entries) {
+    const symbol = String(item.asset || '').toUpperCase().trim();
+    const total = Number(item.total);
+    if (!/^[A-Z0-9]{2,20}$/.test(symbol) || !Number.isFinite(total) || total <= 0) continue;
+    const previous = totals.get(symbol) || { asset: symbol, free: 0, locked: 0, total: 0 };
+    previous.free += Number(item.free) || 0; previous.locked += Number(item.locked) || 0; previous.total += total;
+    totals.set(symbol, previous);
+  }
+  return [...totals.values()].filter(item => item.total > 0);
+}
+
+function base64url(value) { return Buffer.from(value).toString('base64url'); }
+function coinbaseJwt(apiKey, privateKey) {
+  const now = Math.floor(Date.now() / 1000);
+  const header = { alg: 'ES256', kid: apiKey, nonce: randomBytes(16).toString('hex') };
+  const claims = { iss: 'cdp', nbf: now - 5, exp: now + 120, sub: apiKey, uri: 'GET api.coinbase.com/api/v3/brokerage/accounts' };
+  const input = base64url(JSON.stringify(header)) + '.' + base64url(JSON.stringify(claims));
+  const signature = cryptoSign('sha256', Buffer.from(input), { key: privateKey, dsaEncoding: 'ieee-p1363' });
+  return input + '.' + signature.toString('base64url');
+}
+
+async function fetchCryptoExchangeAccount(provider, credentials) {
+  const spec = CRYPTO_EXCHANGES[provider];
+  if (!spec) throw Object.assign(new Error('Corretora cripto não disponível.'), { status: 400 });
+  if (!credentials || spec.fields.some(field => !credentials[field])) return { configured: false, exchange: provider, balances: [] };
+  let balances = [];
+  if (provider === 'binance') {
+    const data = await signedBinanceAccount(credentials.apiKey, credentials.apiSecret);
+    return { ...data, exchange: provider };
+  }
+  if (provider === 'mercadobitcoin') {
+    const form = new URLSearchParams({ grant_type: 'client_credentials', scope: 'global', client_id: credentials.apiKey, client_secret: credentials.apiSecret });
+    const token = await exchangeJson('https://api.mercadobitcoin.net/api/v4/oauth2/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: form.toString() }, spec.name);
+    if (!token.access_token) throw Object.assign(new Error('A ' + spec.name + ' não retornou um token válido. Confira as credenciais.'), { status: 502 });
+    const headers = { Authorization: 'Bearer ' + token.access_token };
+    const accountsPayload = await exchangeJson('https://api.mercadobitcoin.net/api/v4/accounts', { headers }, spec.name);
+    const accounts = Array.isArray(accountsPayload) ? accountsPayload : (accountsPayload.results || accountsPayload.data || []);
+    const account = accounts[0];
+    if (!account || !account.id) throw Object.assign(new Error('Nenhuma conta foi encontrada no Mercado Bitcoin.'), { status: 502 });
+    const payload = await exchangeJson('https://api.mercadobitcoin.net/api/v4/accounts/' + encodeURIComponent(account.id) + '/balances', { headers }, spec.name);
+    const rows = Array.isArray(payload) ? payload : (payload.results || payload.data || []);
+    balances = rows.map(item => { const asset = String(item.symbol || item.currency || '').split('-')[0]; const total = Number(item.total); const locked = Number(item.on_hold) || 0; return cryptoBalance(asset, Number.isFinite(total) ? Math.max(0, total - locked) : item.available, locked); });
+  } else if (provider === 'coinbase') {
+    const jwt = coinbaseJwt(credentials.apiKey, credentials.privateKey);
+    const payload = await exchangeJson('https://api.coinbase.com/api/v3/brokerage/accounts?limit=250', { headers: { Authorization: 'Bearer ' + jwt } }, spec.name);
+    const rows = Array.isArray(payload.accounts) ? payload.accounts : [];
+    balances = rows.map(item => cryptoBalance(item.currency, Number(item.available_balance && item.available_balance.value) + Number(item.hold && item.hold.value)));
+  } else if (provider === 'okx') {
+    const timestamp = new Date().toISOString();
+    const path = '/api/v5/account/balance';
+    const signature = createHmac('sha256', credentials.apiSecret).update(timestamp + 'GET' + path).digest('base64');
+    const payload = await exchangeJson('https://www.okx.com' + path, { headers: { 'OK-ACCESS-KEY': credentials.apiKey, 'OK-ACCESS-SIGN': signature, 'OK-ACCESS-TIMESTAMP': timestamp, 'OK-ACCESS-PASSPHRASE': credentials.passphrase } }, spec.name);
+    if (String(payload.code) !== '0') throw Object.assign(new Error('A OKX recusou a autenticação. Confira chave, senha da API e permissões somente leitura.'), { status: 502 });
+    const rows = (payload.data || []).flatMap(account => account.details || []);
+    balances = rows.map(item => { const free = Number(item.availBal) || 0; const locked = Number(item.frozenBal) || 0; const cash = Number(item.cashBal); return cryptoBalance(item.ccy, free, locked, Number.isFinite(cash) && cash > free + locked ? { total: cash } : {}); });
+  } else if (provider === 'bybit') {
+    const timestamp = String(Date.now()), recvWindow = '5000', query = 'accountType=UNIFIED';
+    const signature = createHmac('sha256', credentials.apiSecret).update(timestamp + credentials.apiKey + recvWindow + query).digest('hex');
+    const payload = await exchangeJson('https://api.bybit.com/v5/account/wallet-balance?' + query, { headers: { 'X-BAPI-API-KEY': credentials.apiKey, 'X-BAPI-SIGN': signature, 'X-BAPI-TIMESTAMP': timestamp, 'X-BAPI-RECV-WINDOW': recvWindow } }, spec.name);
     if (Number(payload.retCode) !== 0) throw Object.assign(new Error('A Bybit recusou a autenticação ou a consulta de saldo. Confira as permissões somente leitura.'), { status: 502 });
     const rows = (payload.result && payload.result.list || []).flatMap(account => account.coin || []);
     balances = rows.map(item => { const total = Number(item.walletBalance) || 0; const locked = Math.min(total, Number(item.locked) || 0); return cryptoBalance(item.coin, Math.max(0, total - locked), locked); });
@@ -1068,11 +1133,11 @@ async function main() {
       if (req.method === 'POST' && pathname === '/api/password-reset/request') {
         const diagnosticId = randomUUID();
         const remote = requestAddress(req);
-        if ((await getRateLimit('reset-email', remote, 15 * 60 * 1000)).count >= 20) { send(res, 429, { error: 'Por segurança, aguarde alguns minutos antes de pedir outro código.', debug: { referenceId: diagnosticId } }); return; }
+        if ((await getRateLimit('reset-email', remote, 15 * 60 * 1000)).count >= 20) { send(res, 429, { error: 'Por segurança, aguarde alguns minutos antes de pedir outro código.' }); return; }
         const body = await readJson(req), email = normalizeEmail(body.email);
-        if (!validEmail(email)) { send(res, 400, { error: 'Informe um e-mail válido.', debug: { referenceId: diagnosticId } }); return; }
-        if (!emailDeliveryConfigured()) { console.error('[password-reset-email]', JSON.stringify({ event: 'password_reset_delivery_unconfigured', diagnosticId, smtpUserConfigured: Boolean(String(process.env.SMTP_USER || '').trim()), smtpPasswordConfigured: Boolean(String(process.env.SMTP_PASSWORD || '').trim()), resendConfigured: Boolean(String(process.env.RESEND_API_KEY || '').trim() && String(process.env.EMAIL_FROM || '').trim()) })); send(res, 503, { error: 'Recuperação por e-mail indisponível: configure SMTP_USER e SMTP_PASSWORD, ou RESEND_API_KEY e EMAIL_FROM no servidor.', debug: { referenceId: diagnosticId } }); return; }
-        const auth = await dbGet('SELECT id, email FROM users WHERE lower(email) = lower(?) AND email_verified_at IS NOT NULL', email);
+        if (!validEmail(email)) { send(res, 400, { error: 'Informe um e-mail válido.' }); return; }
+        if (!emailDeliveryConfigured()) { console.error('[password-reset-email]', JSON.stringify({ event: 'password_reset_delivery_unconfigured', diagnosticId, smtpUserConfigured: Boolean(String(process.env.SMTP_USER || '').trim()), smtpPasswordConfigured: Boolean(String(process.env.SMTP_PASSWORD || '').trim()), resendConfigured: Boolean(String(process.env.RESEND_API_KEY || '').trim() && String(process.env.EMAIL_FROM || '').trim()) })); send(res, 503, { error: 'Recuperação por e-mail indisponível: configure SMTP_USER e SMTP_PASSWORD, ou RESEND_API_KEY e EMAIL_FROM no servidor.' }); return; }
+        const auth = await dbGet('SELECT id, email, email_verified_at AS emailVerifiedAt FROM users WHERE lower(email) = lower(?)', email);
         await incrementRateLimit('reset-email', remote, 15 * 60 * 1000);
         if (auth) {
           try {
@@ -1080,8 +1145,8 @@ async function main() {
             await sendMail(auth.email, 'Código para redefinir sua senha · Minhas Finanças', `Seu código de redefinição é ${code}. Ele expira em 15 minutos e pode ser usado uma única vez. Se você não solicitou, ignore esta mensagem.`, { diagnosticId });
           } catch (error) { console.error('[password-reset-email]', JSON.stringify({ event: 'password_reset_email_not_sent', diagnosticId, code: safeMailDiagnostic(error.code || error.diagnosticId || 'preparation_or_delivery_error'), timestamp: new Date().toISOString() })); }
         }
-        console.info('[password-reset-email]', JSON.stringify({ event: 'password_reset_request_processed', diagnosticId, timestamp: new Date().toISOString() }));
-        send(res, 200, { ok: true, debug: { referenceId: diagnosticId } });
+        console.info('[password-reset-email]', JSON.stringify({ event: 'password_reset_request_processed', diagnosticId, deliveryAttempted: Boolean(auth), emailVerified: Boolean(auth?.emailVerifiedAt), timestamp: new Date().toISOString() }));
+        send(res, 200, { ok: true });
         return;
       }
       if (req.method === 'POST' && pathname === '/api/password-reset/email') {
@@ -1089,7 +1154,7 @@ async function main() {
         if ((await getRateLimit('auth', remote, 60000)).count >= 6) { send(res, 429, { error: 'Muitas tentativas. Aguarde um minuto e tente novamente.' }); return; }
         const body = await readJson(req), email = normalizeEmail(body.email), code = String(body.code || ''), password = String(body.password || '');
         if (!validEmail(email) || !/^\d{8}$/.test(code) || password.length < 12 || password.length > 200 || password !== String(body.confirmPassword || '')) { send(res, 400, { error: 'Confira o e-mail, o código e a confirmação da senha (mínimo 12 caracteres).' }); return; }
-        const auth = await dbGet('SELECT id, email FROM users WHERE lower(email) = lower(?) AND email_verified_at IS NOT NULL', email);
+        const auth = await dbGet('SELECT id, email, email_verified_at AS emailVerifiedAt FROM users WHERE lower(email) = lower(?)', email);
         const reset = auth ? await dbGet('SELECT email, code_hash, expires_at, attempts FROM password_reset_codes WHERE user_id = ?', auth.id) : null;
         const actual = auth && reset && /^\d{8}$/.test(code) ? emailCodeHash(auth.id, code) : '0'.repeat(64);
         const valid = Boolean(reset && reset.email === auth?.email && Number(reset.attempts) < 5 && Date.parse(reset.expires_at) > Date.now() && timingSafeEqual(Buffer.from(actual), Buffer.from(reset.code_hash)));
@@ -1196,50 +1261,6 @@ async function main() {
       if (pathname.startsWith('/api/')) {
         const session = await currentSession(req);
         if (!session) { send(res, 401, { error: 'Entre novamente para acessar suas contas.' }); return; }
-        if (pathname === '/api/whatsapp/settings' && req.method === 'GET') {
-          const settings = await getUserData(session.userId, 'whatsapp_notifications', {});
-          send(res, 200, { phone: String(settings.phone || ''), consent: settings.consent === true, bankTransactions: settings.bankTransactions !== false, cardPurchases: settings.cardPurchases !== false, providerConfigured: Boolean(process.env.WHATSAPP_ACCESS_TOKEN && process.env.WHATSAPP_PHONE_NUMBER_ID && process.env.WHATSAPP_TRANSACTION_TEMPLATE) });
-          return;
-        }
-        if (pathname === '/api/whatsapp/settings' && req.method === 'PUT') {
-          let body;
-          try { body = await readJson(req, 4096); } catch { send(res, 400, { error: 'Configuração inválida.' }); return; }
-          const phone = String(body.phone || '').replace(/\D/g, '');
-          if (body.consent && (phone.length < 10 || phone.length > 15)) { send(res, 400, { error: 'Informe o telefone com código do país e DDD, somente números (ex.: 5511999999999).' }); return; }
-          const settings = { phone, consent: body.consent === true, bankTransactions: body.bankTransactions === true, cardPurchases: body.cardPurchases === true, consentUpdatedAt: body.consent === true ? new Date().toISOString() : null };
-          await setUserData(session.userId, 'whatsapp_notifications', settings);
-          send(res, 200, { ok: true, providerConfigured: Boolean(process.env.WHATSAPP_ACCESS_TOKEN && process.env.WHATSAPP_PHONE_NUMBER_ID && process.env.WHATSAPP_TRANSACTION_TEMPLATE) });
-          return;
-        }
-        if (pathname === '/api/whatsapp/notify' && req.method === 'POST') {
-          let body;
-          try { body = await readJson(req, 4096); } catch { send(res, 400, { error: 'Aviso inválido.' }); return; }
-          const settings = await getUserData(session.userId, 'whatsapp_notifications', {});
-          const eventType = body.kind === 'card' ? 'cardPurchases' : body.kind === 'bank' ? 'bankTransactions' : '';
-          if (!settings.consent || !eventType || settings[eventType] !== true) { send(res, 200, { sent: false, reason: 'disabled' }); return; }
-          const accessToken = String(process.env.WHATSAPP_ACCESS_TOKEN || '').trim();
-          const phoneNumberId = String(process.env.WHATSAPP_PHONE_NUMBER_ID || '').trim();
-          const template = String(process.env.WHATSAPP_TRANSACTION_TEMPLATE || '').trim();
-          if (!accessToken || !phoneNumberId || !template) { send(res, 200, { sent: false, reason: 'provider_not_configured' }); return; }
-          const eventId = String(body.eventId || '').slice(0, 180);
-          if (!eventId) { send(res, 400, { error: 'Identificador da transação ausente.' }); return; }
-          const dedupeKey = `whatsapp_sent:${session.userId}:${createHash('sha256').update(eventId).digest('hex')}`;
-          if (await dbGet('SELECT 1 FROM app_meta WHERE key = ?', dedupeKey)) { send(res, 200, { sent: false, reason: 'duplicate' }); return; }
-          const amount = Number(body.amount);
-          const date = String(body.date || '');
-          const description = String(body.description || '').replace(/[<>]/g, '').slice(0, 80);
-          if (!Number.isFinite(amount) || amount <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !description) { send(res, 400, { error: 'Os dados da transação estão incompletos.' }); return; }
-          const kindLabel = body.kind === 'card' ? 'Compra no cartão' : body.type === 'income' ? 'Entrada bancária' : 'Saída bancária';
-          const source = String(body.source || (body.kind === 'card' ? 'Cartão de crédito' : 'Conta bancária')).slice(0, 50);
-          const graphVersion = String(process.env.WHATSAPP_GRAPH_API_VERSION || 'v23.0').trim();
-          try {
-            const response = await fetch(`https://graph.facebook.com/${encodeURIComponent(graphVersion)}/${encodeURIComponent(phoneNumberId)}/messages`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: settings.phone, type: 'template', template: { name: template, language: { code: String(process.env.WHATSAPP_TEMPLATE_LANGUAGE || 'pt_BR') }, components: [{ type: 'body', parameters: [{ type: 'text', text: kindLabel }, { type: 'text', text: description }, { type: 'text', text: new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(amount) }, { type: 'text', text: date.split('-').reverse().join('/') }, { type: 'text', text: source }] }] } }), signal: AbortSignal.timeout(10000) });
-            if (!response.ok) { const metaError = await response.json().catch(() => ({})); console.error('[whatsapp] Meta API rejected notification', JSON.stringify({ status: response.status, code: metaError?.error?.code || null, subcode: metaError?.error?.error_subcode || null })); send(res, 502, { error: 'A Meta não aceitou o aviso. Confira o modelo aprovado e a configuração do WhatsApp Business.' }); return; }
-            await dbRun('INSERT INTO app_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING', dedupeKey, new Date().toISOString());
-            send(res, 200, { sent: true });
-          } catch (error) { console.error('[whatsapp] Falha ao enviar aviso:', String(error?.message || error).slice(0, 180)); send(res, 502, { error: 'Não foi possível enviar o aviso pelo WhatsApp.' }); }
-          return;
-        }
         if (req.method === 'GET' && pathname === '/api/account/email') {
           const user = await getUser(session.userId);
           send(res, 200, { email: user.email || null, verified: Boolean(user.emailVerifiedAt) });
