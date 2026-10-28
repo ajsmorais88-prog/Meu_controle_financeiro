@@ -164,9 +164,11 @@
     $('#prevWeek').setAttribute('aria-label',isMonth?'Mês anterior':'Semana anterior');
     $('#nextWeek').setAttribute('aria-label',isMonth?'Próximo mês':'Próxima semana');
     const inWeek=transactions.filter(t=>{const d=parseDate(t.date);return d>=rangeStart&&d<=rangeEnd;});
-    const income=inWeek.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
-    const expense=isMonth?realizedExpenseInRange(rangeStart,rangeEnd):inWeek.filter(t=>t.type==='expense').reduce((sum,t)=>{const installments=Math.min(120,Math.max(1,Number(t.installments)||1));const installmentPlan=installments>1&&['cartao','crediario','financiamento'].includes(t.paymentMethod);return installmentPlan?sum:sum+Number(t.amount||0);},0);
+    const primaryBankAccount=bankAccounts[0]||{id:'main',name:'Conta principal'};const primaryAccountTransactions=inWeek.filter(t=>!t.statementBatchId&&t.paymentMethod!=='cartao'&&!t.cardId&&transactionBankAccountId(t)===String(primaryBankAccount.id));
+    const income=primaryAccountTransactions.filter(t=>t.type==='income').reduce((s,t)=>s+Number(t.amount||0),0);
+    const expense=primaryAccountTransactions.filter(t=>t.type==='expense').reduce((sum,t)=>sum+Number(t.amount||0),0);
     $('#balanceValue').textContent=money(income-expense); $('#incomeValue').textContent=money(income); $('#expenseValue').textContent=money(expense);
+    $('#overviewBalanceCaption').textContent=`${primaryBankAccount.name} · Entradas menos saídas`;$('#overviewIncomeCaption').textContent=`${primaryBankAccount.name} · Dinheiro que entrou`;$('#overviewExpenseCaption').textContent=`${primaryBankAccount.name} · Dinheiro que saiu`;
     $('#fixedShare').textContent=money(monthlyIncome*allocation.fixed/100); $('#fixedCurrentValue').textContent=money(fixedMonthlyTotal()); $('#cardShare').textContent=money(monthlyIncome*allocation.card/100); $('#investmentShare').textContent=money(monthlyIncome*allocation.investment/100);
     document.querySelectorAll('.allocation-percent').forEach((node,index)=>node.textContent=`${[allocation.fixed,allocation.card,allocation.investment][index]}%`);
     $('#fixedAllowanceLabel').textContent=`Limite mensal · ${allocation.fixed}% da renda`;$('#investmentTargetLabel').textContent=`Meta mensal · ${allocation.investment}% da renda`;
