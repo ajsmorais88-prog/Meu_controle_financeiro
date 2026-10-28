@@ -1,3 +1,4 @@
+Attempting to perform the InitializeDefaultDrives operation on the 'FileSystem' provider failed.
 <!doctype html>
 <html lang="pt-BR">
 <head>
@@ -59,9 +60,9 @@
       <article class="panel all-transactions-panel"><div class="panel-heading"><div><p class="eyebrow">MOVIMENTAÇÕES REALIZADAS</p><h2 id="allTransactionsMonthLabel">Transações do mês</h2></div></div><div id="allTransactionsList" class="transaction-list"></div><div id="allTransactionsEmpty" class="empty-state" hidden><span>≡</span><p>Nenhuma transação neste mês.</p><small>Escolha outro mês ou registre uma nova movimentação.</small></div></article>
     </section>
     <section id="fixedView" class="fixed-view" role="tabpanel" aria-labelledby="fixedTab" hidden>
-      <div class="fixed-intro"><div><p class="eyebrow">ORGANIZAÇÃO MENSAL</p><h1>Custos fixos,<br><em>sempre no controle.</em></h1><p class="subheading">Cadastre seus compromissos recorrentes e acompanhe o limite destinado a eles.</p></div><button class="button button-dark" id="addFixedCost">＋ Adicionar custo fixo</button></div>
-      <section class="fixed-summary-grid"><article class="summary-card fixed-allowance-card"><div class="card-top"><span id="fixedAllowanceLabel">Limite mensal · 50% da renda</span><span class="icon-circle">½</span></div><strong id="fixedAllowanceValue">R$ 0,00</strong><small>Definido pela renda mensal cadastrada</small></article><article class="summary-card"><div class="card-top"><span>Custos fixos cadastrados</span><span class="icon-circle icon-orange">↗</span></div><strong id="fixedTotalValue">R$ 0,00</strong><small id="fixedRemainingLabel">Cadastre seus compromissos</small></article></section>
-      <article class="panel fixed-list-panel"><div class="panel-heading"><div><p class="eyebrow">SEUS COMPROMISSOS</p><h2>Despesas mensais recorrentes</h2></div><span class="week-tag" id="fixedCapacity">0% do limite</span></div><div class="progress-track fixed-progress-track"><div class="progress-fill" id="fixedProgress"></div></div><div class="fixed-cost-list" id="fixedCostList"></div><div class="empty-state" id="fixedEmpty"><span>＋</span><p>Nenhum custo fixo cadastrado.</p><small>Inclua aluguel, contas, mensalidades e outros compromissos.</small></div></article>
+      <div class="fixed-intro"><div><p class="eyebrow">ORGANIZAÇÃO MENSAL</p><h1>Custos fixos,<br><em>sempre no controle.</em></h1><p class="subheading">Compare o valor principal de cada conta com o que foi pago no mês.</p></div><div class="fixed-view-actions"><label class="month-filter">Mês de referência<input id="fixedCostMonthFilter" type="month" aria-label="Mês dos custos fixos"></label><button class="button button-dark" id="addFixedCost">＋ Adicionar custo fixo</button></div></div>
+      <section class="fixed-summary-grid"><article class="summary-card fixed-allowance-card"><div class="card-top"><span id="fixedAllowanceLabel">Limite mensal · 50% da renda</span><span class="icon-circle">½</span></div><strong id="fixedAllowanceValue">R$ 0,00</strong><small>Definido pela renda mensal cadastrada</small></article><article class="summary-card"><div class="card-top"><span>Valor principal previsto</span><span class="icon-circle icon-orange">↗</span></div><strong id="fixedTotalValue">R$ 0,00</strong><small id="fixedRemainingLabel">Pago no mês: R$ 0,00</small></article></section>
+      <article class="panel fixed-list-panel"><div class="panel-heading"><div><p class="eyebrow">SEUS COMPROMISSOS</p><h2>Custos do mês selecionado</h2></div><span class="week-tag" id="fixedCapacity">0% do limite</span></div><div class="progress-track fixed-progress-track"><div class="progress-fill" id="fixedProgress"></div></div><div class="fixed-cost-list" id="fixedCostList"></div><div class="empty-state" id="fixedEmpty"><span>＋</span><p>Nenhum custo fixo cadastrado neste mês.</p><small>Escolha outro mês ou inclua seus compromissos recorrentes.</small></div></article>
       <article class="panel fixed-paid-panel"><div class="panel-heading"><div><p class="eyebrow">HISTÓRICO DE PAGAMENTOS</p><h2>Custos fixos pagos no ano</h2></div><label class="month-filter">Ano<select id="fixedPaidYear" aria-label="Ano do histórico de custos fixos pagos"></select></label><strong id="fixedPaidYearTotal" class="fixed-paid-year-total">R$ 0,00</strong></div><p class="panel-copy">Total de pagamentos registrados em cada mês.</p><div id="fixedPaidChart" class="fixed-paid-chart" role="img" aria-label="Gráfico mensal de custos fixos pagos"></div></article>
     </section>
     <section id="cardsView" class="cards-view" role="tabpanel" aria-labelledby="cardsTab" hidden>
@@ -124,4 +125,5 @@
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 </body>
 </html>
+
 
