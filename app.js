@@ -161,7 +161,7 @@
   function updateAllocationProgress(id,actual,target){const bar=document.getElementById(id);if(!bar)return;const percent=target>0?Math.max(0,Number(actual||0)/target*100):0;bar.style.width=`${Math.min(percent,100)}%`;bar.parentElement.classList.toggle('over',percent>100);bar.parentElement.setAttribute('aria-valuenow',String(Math.round(percent)));}
   function render() {
     reconcileFixedCostsWithBankTransactions();
-    const periodMode=$('#periodMode').value||'week';
+    const periodMode='month';
     const isMonth=periodMode==='month';
     const {monday,sunday}=weekBounds();
     const monthStart=new Date(today.getFullYear(),today.getMonth()+monthOffset,1);
