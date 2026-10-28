@@ -301,8 +301,12 @@
       {key:'investment',name:'Investimentos',share:allocation.investment/100,amount:investmentAmount,type:'goal'}
     ];
     const lastDay=new Date(today.getFullYear(),today.getMonth()+1,0).getDate();
-    const deviations=plan.filter(item=>item.type==='limit'?item.amount>monthlyIncome*item.share:item.amount>monthlyIncome*item.share);
+    const investmentTarget=monthlyIncome*allocation.investment/100,investmentMissedAtMonthEnd=today.getDate()===lastDay&&investmentAmount<investmentTarget;
+    const deviations=monthlyIncome>0?plan.filter(item=>item.key==='investment'?item.amount>monthlyIncome*item.share||investmentMissedAtMonthEnd:item.amount>monthlyIncome*item.share):[];
     const near=plan.filter(item=>item.type==='limit'&&item.amount>=monthlyIncome*item.share*.8&&item.amount<=monthlyIncome*item.share);
+    const mascot=$('#alladinMascot'),mascotMood=monthlyIncome<=0||deviations.length===1?'thinking':deviations.length>1?'sad':'happy';
+    const mascotMessage=monthlyIncome<=0?'Alladin precisa da sua renda para avaliar o plano':mascotMood==='happy'?'Alladin está feliz: tudo dentro do planejado':mascotMood==='sad'? 'Alladin está triste: '+deviations.length+' indicadores fora do planejado':'Alladin está pensativo: 1 indicador fora do planejado';
+    mascot.dataset.mood=mascotMood;mascot.setAttribute('aria-label',mascotMessage);mascot.querySelector('.alladin-mood-label').textContent=mascotMood==='happy'?'Tudo no planejado':mascotMood==='sad'?deviations.length+' indicadores fora':'Acompanhando o plano';
     if(monthlyIncome<=0)summary.textContent=`Informe sua renda mensal para o Alladin acompanhar os limites de ${allocation.fixed}%, ${allocation.card}% e ${allocation.investment}%.`;
     else if(deviations.length)summary.textContent='O Alladin detectou valores acima do planejado. Confira os indicadores e avisos abaixo.';
     else if(near.length)summary.textContent='Atenção: '+near.map(item=>item.name).join(' e ')+' está(ão) próximo(s) do limite mensal.';
