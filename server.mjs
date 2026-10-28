@@ -1050,6 +1050,27 @@ server.requestTimeout = 30_000;
 server.keepAliveTimeout = 5_000;
 server.maxRequestsPerSocket = 1000;
 
+async function initializeDatabaseWithRetry() {
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      await initializeDatabaseWithRetry();
+      return;
+    } catch (error) {
+      const details = [];
+      let current = error;
+      for (let depth = 0; current && depth < 4; depth += 1) {
+        details.push(String(current.message || ''), String(current.code || ''));
+        current = current.cause || current.sourceError;
+      }
+      const transientConnectionFailure = /fetch failed|ECONNRESET|ECONNREFUSED|EHOSTUNREACH|ETIMEDOUT|UND_ERR_SOCKET|socket hang up|connection.*closed/i.test(details.join(' '));
+      if (!transientConnectionFailure || attempt === maxAttempts) throw error;
+      console.warn('[database-startup-retry]', JSON.stringify({ attempt, maxAttempts, code: error?.code || error?.sourceError?.cause?.code || 'connection_error' }));
+      await new Promise(resolve => setTimeout(resolve, attempt * 400));
+    }
+  }
+}
+
 async function main() {
   await loadDotEnv();
   if (process.env.NODE_ENV === 'production') {
