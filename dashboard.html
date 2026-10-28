@@ -113,6 +113,17 @@
         
         <article class="panel connection-panel brokerage-panel"><div class="connection-heading"><span class="connection-logo brokerage-logo">↗</span><div><p class="eyebrow">CARTEIRA DE INVESTIMENTOS</p><h2>Corretoras disponíveis</h2></div><button type="button" class="row-action" id="reloadBrokerageConnectors">Atualizar lista</button></div><p class="panel-copy">Escolha uma corretora e acesse o Pluggy Connect para fazer login com segurança. O acesso real depende da habilitação da sua aplicação Pluggy.</p><label class="brokerage-select-label" for="brokerageConnectorSelect">Corretora<select id="brokerageConnectorSelect"><option value="">Carregando corretoras…</option></select></label><div class="bradesco-actions"><button type="button" class="button button-dark" id="connectBrokerage" disabled>Acessar Pluggy Connect</button></div><p class="connection-status" id="brokerageConnectorStatus" aria-live="polite">Carregando corretoras de investimento…</p><div id="brokerageConnectedList" class="brokerage-connected-list"></div></article>
       </div>
+      <article class="panel whatsapp-notifications-panel">
+        <div class="connection-heading"><span class="connection-logo whatsapp-logo" aria-hidden="true">◉</span><div><p class="eyebrow">ALERTAS NO CELULAR</p><h2>Notificações pelo WhatsApp</h2></div><span class="connection-state" id="whatsappProviderState">Verificando configuração</span></div>
+        <p class="panel-copy">Receba um aviso quando uma transação bancária ou uma compra no cartão for registrada. O número e sua autorização ficam associados somente à sua conta.</p>
+        <form id="whatsappSettingsForm" class="whatsapp-settings-form">
+          <label>WhatsApp com código do país e DDD<input name="phone" type="tel" inputmode="numeric" autocomplete="tel" placeholder="5511999999999" maxlength="20"></label>
+          <div class="whatsapp-options"><label><input name="bankTransactions" type="checkbox" checked> Transações bancárias</label><label><input name="cardPurchases" type="checkbox" checked> Compras no cartão</label></div>
+          <label class="whatsapp-consent"><input name="consent" type="checkbox"> Aceito receber notificações financeiras pelo WhatsApp neste número.</label>
+          <button class="button button-dark" type="submit">Salvar preferências</button>
+        </form>
+        <p class="connection-status" id="whatsappSettingsStatus" aria-live="polite">Para enviar avisos, o administrador precisa configurar um modelo transacional aprovado pela Meta no servidor. A autorização acima é necessária para ativar o envio.</p>
+      </article>
     </section>
     <footer><strong>Minhas Finanças</strong><span>Organização clara para escolhas melhores.</span><button id="clearData">Apagar meus dados</button></footer>
   </main>
