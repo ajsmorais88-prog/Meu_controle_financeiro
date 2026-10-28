@@ -211,7 +211,10 @@
     renderAllTransactions();
     $('#balanceValue').textContent=$('#bankAccountBalance').textContent;
     const overviewAccount=bankAccounts.find(account=>String(account.id)===String(selectedBankAccountId));
-    $('#overviewBalanceCaption').textContent=`${overviewAccount?.name||'Conta principal'} · Mesmo saldo atual das transações bancárias`;
+    $('#overviewOpeningCaption').textContent='Fechamento até o último dia anterior';
+    $('#overviewIncomeCaption').textContent=`${overviewAccount?.name||'Conta principal'} · Total recebido no mês`;
+    $('#overviewExpenseCaption').textContent=`${overviewAccount?.name||'Conta principal'} · Total pago ou registrado no mês`;
+    $('#overviewBalanceCaption').textContent=`${overviewAccount?.name||'Conta principal'} · Saldo atualizado do mês`;
     renderCards();
     renderFixedCosts();
     renderFixedAnnualChart();
@@ -245,6 +248,9 @@
     const selectedBalance=bankBalanceOverride(selectedBankAccountId,selectedMonth);const bankBalance=selectedBalance!==null?selectedBalance:previousMonthBalance+income-expense;
     $('#previousMonthBalance').textContent=money(previousMonthBalance);
     $('#bankAccountBalance').textContent=money(bankBalance);
+    $('#overviewOpeningBalance').textContent=money(previousMonthBalance);
+    $('#incomeValue').textContent=money(income);
+    $('#expenseValue').textContent=money(expense);
     $('#balanceValue').textContent=money(bankBalance);
     const overviewAccount=bankAccounts.find(account=>String(account.id)===String(selectedBankAccountId));
     $('#overviewBalanceCaption').textContent=`${overviewAccount?.name||'Conta principal'} · Mesmo saldo atual das transações bancárias`;
