@@ -15,8 +15,13 @@
   <main class="app-shell">
     <header class="topbar">
       <a class="brand" href="#inicio" aria-label="Minhas Finanças, início"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 40 40" role="img" focusable="false"><path d="M8 28.5 16.2 20l5.1 5.2L32 13.5" fill="none" stroke="currentColor" stroke-width="3.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M25.8 13.5H32v6.2" fill="none" stroke="currentColor" stroke-width="3.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 33h24" fill="none" stroke="currentColor" stroke-opacity=".38" stroke-width="2" stroke-linecap="round"/></svg></span><span class="brand-name">Minhas <span>Finanças</span></span></a>
-      <div class="top-actions"><button class="button button-outline logout-button" id="logout">Sair</button><button class="button button-dark" id="newTransaction">＋ Nova transação</button></div>
+      <div class="top-actions"><button class="button button-outline notification-trigger" id="notificationsButton" type="button" aria-expanded="false" aria-controls="notificationsPanel" aria-label="Notificações"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span id="notificationsBadge" class="notification-badge" hidden>0</span></button><button class="button button-outline logout-button" id="logout">Sair</button><button class="button button-dark" id="newTransaction">＋ Nova transação</button></div>
     </header>
+    <section id="notificationsPanel" class="notification-center" aria-label="Central de notificações" hidden>
+      <div class="notification-center-heading"><div><p class="eyebrow">CENTRAL DE AVISOS</p><h2>Notificações</h2></div><button class="notification-close" id="markAllNotificationsRead" type="button">Marcar todas como lidas</button></div>
+      <div id="notificationsList" class="notification-list" aria-live="polite"></div>
+      <div class="notification-center-footer"><span>Este dispositivo · sua conta</span><button class="row-action" id="clearNotifications" type="button">Limpar avisos</button></div>
+    </section>
 
     <nav class="view-tabs" aria-label="Seções do controle financeiro" role="tablist"><button class="view-tab active" id="overviewTab" role="tab" aria-selected="true" aria-controls="dashboardView">Visão geral</button><button class="view-tab" id="transactionsTab" role="tab" aria-selected="false" aria-controls="transactionsView">Transações bancárias</button><button class="view-tab" id="fixedTab" role="tab" aria-selected="false" aria-controls="fixedView">Custos fixos <span class="tab-count" id="fixedCount">0</span></button><button class="view-tab" id="cardsTab" role="tab" aria-selected="false" aria-controls="cardsView">Cartões</button><button class="view-tab" id="investmentsTab" role="tab" aria-selected="false" aria-controls="investmentsView">Investimentos</button><button class="view-tab" id="reportsTab" role="tab" aria-selected="false" aria-controls="reportsView">Relat&#243;rios</button><button class="view-tab" id="connectionsTab" role="tab" aria-selected="false" aria-controls="connectionsView">Contas</button></nav>
     <div id="dashboardView" role="tabpanel" aria-labelledby="overviewTab">
@@ -113,17 +118,6 @@
         
         <article class="panel connection-panel brokerage-panel"><div class="connection-heading"><span class="connection-logo brokerage-logo">↗</span><div><p class="eyebrow">CARTEIRA DE INVESTIMENTOS</p><h2>Corretoras disponíveis</h2></div><button type="button" class="row-action" id="reloadBrokerageConnectors">Atualizar lista</button></div><p class="panel-copy">Escolha uma corretora e acesse o Pluggy Connect para fazer login com segurança. O acesso real depende da habilitação da sua aplicação Pluggy.</p><label class="brokerage-select-label" for="brokerageConnectorSelect">Corretora<select id="brokerageConnectorSelect"><option value="">Carregando corretoras…</option></select></label><div class="bradesco-actions"><button type="button" class="button button-dark" id="connectBrokerage" disabled>Acessar Pluggy Connect</button></div><p class="connection-status" id="brokerageConnectorStatus" aria-live="polite">Carregando corretoras de investimento…</p><div id="brokerageConnectedList" class="brokerage-connected-list"></div></article>
       </div>
-      <article class="panel whatsapp-notifications-panel">
-        <div class="connection-heading"><span class="connection-logo whatsapp-logo" aria-hidden="true">◉</span><div><p class="eyebrow">ALERTAS NO CELULAR</p><h2>Notificações pelo WhatsApp</h2></div><span class="connection-state" id="whatsappProviderState">Verificando configuração</span></div>
-        <p class="panel-copy">Receba um aviso quando uma transação bancária ou uma compra no cartão for registrada. O número e sua autorização ficam associados somente à sua conta.</p>
-        <form id="whatsappSettingsForm" class="whatsapp-settings-form">
-          <label>WhatsApp com código do país e DDD<input name="phone" type="tel" inputmode="numeric" autocomplete="tel" placeholder="5511999999999" maxlength="20"></label>
-          <div class="whatsapp-options"><label><input name="bankTransactions" type="checkbox" checked> Transações bancárias</label><label><input name="cardPurchases" type="checkbox" checked> Compras no cartão</label></div>
-          <label class="whatsapp-consent"><input name="consent" type="checkbox"> Aceito receber notificações financeiras pelo WhatsApp neste número.</label>
-          <button class="button button-dark" type="submit">Salvar preferências</button>
-        </form>
-        <p class="connection-status" id="whatsappSettingsStatus" aria-live="polite">Para enviar avisos, o administrador precisa configurar um modelo transacional aprovado pela Meta no servidor. A autorização acima é necessária para ativar o envio.</p>
-      </article>
     </section>
     <footer><strong>Minhas Finanças</strong><span>Organização clara para escolhas melhores.</span><button id="clearData">Apagar meus dados</button></footer>
   </main>
