@@ -751,12 +751,24 @@
   function parseOFX(text){const transactionsFound=[];const blocks=text.split(/<STMTTRN>/i).slice(1);for(const block of blocks){const get=tag=>((block.match(new RegExp('<'+tag+'>([^<\\r\\n]+)','i'))||[])[1]||'').trim();let date=get('DTPOSTED').slice(0,8);if(!/^\d{8}$/.test(date))continue;date=date.slice(0,4)+'-'+date.slice(4,6)+'-'+date.slice(6,8);const signed=Number(get('TRNAMT').replace(',','.'));if(!Number.isFinite(signed)||signed===0)continue;transactionsFound.push({id:'ofx-'+Date.now()+'-'+Math.random(),date,description:get('MEMO')||get('NAME')||'Transação importada',category:'Importado',amount:Math.abs(signed),type:signed<0?'expense':'income',createdAt:Date.now()});}const ledger=(text.match(/<LEDGERBAL>([\s\S]*?)<\/LEDGERBAL>/i)||[])[1]||'';const balanceText=((ledger.match(/<BALAMT>([^<\r\n]+)/i)||[])[1]||'').trim();const balanceDate=((ledger.match(/<DTASOF>([^<\r\n]+)/i)||[])[1]||'').trim().slice(0,8);const balance=Number(balanceText.replace(',','.'));if(transactionsFound.length&&/^\d{8}$/.test(balanceDate)&&Number.isFinite(balance)){const snapshot=transactionsFound[transactionsFound.length-1];snapshot.statementBalance=balance;snapshot.statementBalanceDate=balanceDate.slice(0,4)+'-'+balanceDate.slice(4,6)+'-'+balanceDate.slice(6,8);}return transactionsFound;}
   function updateOpeningBalanceFromStatement(imported){
     const snapshots=imported.filter(item=>Number.isFinite(Number(item.statementBalance))&&/^\d{4}-\d{2}-\d{2}$/.test(String(item.statementBalanceDate||''))).sort((a,b)=>String(a.statementBalanceDate).localeCompare(String(b.statementBalanceDate)));
-    const snapshot=snapshots[snapshots.length-1];if(!snapshot)return false;
-    const snapshotDate=String(snapshot.statementBalanceDate),snapshotMonth=snapshotDate.slice(0,7),monthStart=snapshotMonth+'-01';
-    const netThroughSnapshot=imported.filter(item=>String(item.date||'')>=monthStart&&String(item.date||'')<=snapshotDate).reduce((sum,item)=>sum+(item.type==='income'?1:-1)*(Number(item.amount)||0),0);
-    const [year,month]=snapshotMonth.split('-').map(Number),previousMonth=monthKey(new Date(year,month-2,1));
-    bankBalanceOverrides[previousMonth]=Number(snapshot.statementBalance)-netThroughSnapshot;
-    delete bankBalanceOverrides[snapshotMonth];
+    if(!snapshots.length)return false;
+    const latestSnapshot=snapshots[snapshots.length-1],month=String(latestSnapshot.statementBalanceDate).slice(0,7),firstDay=month+'-01';
+    const firstDaySnapshots=snapshots.filter(item=>String(item.statementBalanceDate)===firstDay);
+    let openingBalance;
+    if(firstDaySnapshots.length){
+      const dayOneSnapshot=firstDaySnapshots[firstDaySnapshots.length-1];
+      const dayOneTransactions=imported.filter(item=>String(item.date||'')===firstDay);
+      const dayOneDebits=dayOneTransactions.filter(item=>item.type==='expense').reduce((sum,item)=>sum+(Number(item.amount)||0),0);
+      const dayOneCredits=dayOneTransactions.filter(item=>item.type==='income').reduce((sum,item)=>sum+(Number(item.amount)||0),0);
+      openingBalance=Number(dayOneSnapshot.statementBalance)+dayOneDebits-dayOneCredits;
+    }else{
+      const snapshotDate=String(latestSnapshot.statementBalanceDate),monthStart=month+'-01';
+      const netThroughSnapshot=imported.filter(item=>String(item.date||'')>=monthStart&&String(item.date||'')<=snapshotDate).reduce((sum,item)=>sum+(item.type==='income'?1:-1)*(Number(item.amount)||0),0);
+      openingBalance=Number(latestSnapshot.statementBalance)-netThroughSnapshot;
+    }
+    const [year,monthNumber]=month.split('-').map(Number),previousMonth=monthKey(new Date(year,monthNumber-2,1));
+    bankBalanceOverrides[previousMonth]=openingBalance;
+    delete bankBalanceOverrides[month];
     localStorage.setItem(BANK_BALANCE_KEY,JSON.stringify(bankBalanceOverrides));
     return true;
   }
