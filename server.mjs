@@ -1261,6 +1261,37 @@ async function main() {
       if (pathname.startsWith('/api/')) {
         const session = await currentSession(req);
         if (!session) { send(res, 401, { error: 'Entre novamente para acessar suas contas.' }); return; }
+        if (pathname === '/api/whatsapp/settings' && req.method === 'GET') {
+          const settings = await getUserData(session.userId, 'whatsapp_notifications', {});
+          send(res, 200, { phone: String(settings.phone || ''), consent: settings.consent === true, bankTransactions: settings.bankTransactions !== false, cardPurchases: settings.cardPurchases !== false, providerConfigured: Boolean(process.env.WHATSAPP_ACCESS_TOKEN && process.env.WHATSAPP_PHONE_NUMBER_ID && process.env.WHATSAPP_TRANSACTION_TEMPLATE) }); return;
+        }
+        if (pathname === '/api/whatsapp/settings' && req.method === 'PUT') {
+          let body; try { body = await readJson(req, 4096); } catch { send(res, 400, { error: 'Configuração inválida.' }); return; }
+          const phone = String(body.phone || '').replace(/\\D/g, '');
+          if (body.consent && (phone.length < 10 || phone.length > 15)) { send(res, 400, { error: 'Informe o telefone com código do país e DDD, somente números (ex.: 5511999999999).' }); return; }
+          const settings = { phone, consent: body.consent === true, bankTransactions: body.bankTransactions === true, cardPurchases: body.cardPurchases === true, consentUpdatedAt: body.consent === true ? new Date().toISOString() : null };
+          await setUserData(session.userId, 'whatsapp_notifications', settings);
+          send(res, 200, { ok: true, providerConfigured: Boolean(process.env.WHATSAPP_ACCESS_TOKEN && process.env.WHATSAPP_PHONE_NUMBER_ID && process.env.WHATSAPP_TRANSACTION_TEMPLATE) }); return;
+        }
+        if (pathname === '/api/whatsapp/notify' && req.method === 'POST') {
+          let body; try { body = await readJson(req, 4096); } catch { send(res, 400, { error: 'Aviso inválido.' }); return; }
+          const settings = await getUserData(session.userId, 'whatsapp_notifications', {}), eventType = body.kind === 'card' ? 'cardPurchases' : body.kind === 'bank' ? 'bankTransactions' : '';
+          if (!settings.consent || !eventType || settings[eventType] !== true) { send(res, 200, { sent: false, reason: 'disabled' }); return; }
+          const accessToken = String(process.env.WHATSAPP_ACCESS_TOKEN || '').trim(), phoneNumberId = String(process.env.WHATSAPP_PHONE_NUMBER_ID || '').trim(), template = String(process.env.WHATSAPP_TRANSACTION_TEMPLATE || '').trim();
+          if (!accessToken || !phoneNumberId || !template) { send(res, 200, { sent: false, reason: 'provider_not_configured' }); return; }
+          const eventId = String(body.eventId || '').slice(0, 180); if (!eventId) { send(res, 400, { error: 'Identificador da transação ausente.' }); return; }
+          const dedupeKey = 'whatsapp_sent:' + session.userId + ':' + createHash('sha256').update(eventId).digest('hex');
+          if (await dbGet('SELECT 1 FROM app_meta WHERE key = ?', dedupeKey)) { send(res, 200, { sent: false, reason: 'duplicate' }); return; }
+          const amount = Number(body.amount), date = String(body.date || ''), description = String(body.description || '').replace(/[<>]/g, '').slice(0, 80);
+          if (!Number.isFinite(amount) || amount <= 0 || !/^\\d{4}-\\d{2}-\\d{2}$/.test(date) || !description) { send(res, 400, { error: 'Os dados da transação estão incompletos.' }); return; }
+          const kindLabel = body.kind === 'card' ? 'Compra no cartão' : body.type === 'income' ? 'Entrada bancária' : 'Saída bancária', source = String(body.source || (body.kind === 'card' ? 'Cartão de crédito' : 'Conta bancária')).slice(0, 50), graphVersion = String(process.env.WHATSAPP_GRAPH_API_VERSION || 'v23.0').trim();
+          try {
+            const response = await fetch('https://graph.facebook.com/' + encodeURIComponent(graphVersion) + '/' + encodeURIComponent(phoneNumberId) + '/messages', { method: 'POST', headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' }, body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: settings.phone, type: 'template', template: { name: template, language: { code: String(process.env.WHATSAPP_TEMPLATE_LANGUAGE || 'pt_BR') }, components: [{ type: 'body', parameters: [{ type: 'text', text: kindLabel }, { type: 'text', text: description }, { type: 'text', text: new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(amount) }, { type: 'text', text: date.split('-').reverse().join('/') }, { type: 'text', text: source }] }] } }), signal: AbortSignal.timeout(10000) });
+            if (!response.ok) { const metaError = await response.json().catch(() => ({})); console.error('[whatsapp] Meta recusou aviso', JSON.stringify({ status: response.status, code: metaError?.error?.code || null, subcode: metaError?.error?.error_subcode || null })); send(res, 502, { error: 'A Meta não aceitou o aviso. Confira o modelo aprovado e a configuração do WhatsApp Business.' }); return; }
+            await dbRun('INSERT INTO app_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING', dedupeKey, new Date().toISOString()); send(res, 200, { sent: true });
+          } catch (error) { console.error('[whatsapp] Falha ao enviar aviso:', String(error?.message || error).slice(0, 180)); send(res, 502, { error: 'Não foi possível enviar o aviso pelo WhatsApp.' }); }
+          return;
+        }
         if (req.method === 'GET' && pathname === '/api/account/email') {
           const user = await getUser(session.userId);
           send(res, 200, { email: user.email || null, verified: Boolean(user.emailVerifiedAt) });
