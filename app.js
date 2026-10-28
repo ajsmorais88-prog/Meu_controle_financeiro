@@ -304,11 +304,11 @@
     const currentMonth=monthKey(today),dayMs=24*60*60*1000;
     for(const item of fixedCosts){
       const occurrenceMonth=fixedCostOccurrenceMonth(item);if(occurrenceMonth>currentMonth)continue;
-      const paid=transactions.some(t=>String(t.fixedCostId)===String(item.id)&&String(t.fixedCostMonthKey||'')===occurrenceMonth);if(paid)continue;
+      const paidAmount=fixedPaidForMonth(item,occurrenceMonth);const alertAmount=paidAmount||Number(item.amount)||0;if(paidAmount>0)continue;
       const due=parseDate(fixedCostDueDate(item)),daysUntil=Math.round((due-today)/dayMs);if(daysUntil>7)continue;
-      if(daysUntil<0){const dueText=new Intl.DateTimeFormat('pt-BR',{day:'2-digit',month:'short'}).format(due).replace('.','');alerts.push({kind:'over',title:'Conta vencida',message:item.name+' venceu em '+dueText+' · '+money(item.amount)});continue;}
+      if(daysUntil<0){const dueText=new Intl.DateTimeFormat('pt-BR',{day:'2-digit',month:'short'}).format(due).replace('.','');alerts.push({kind:'over',title:'Conta vencida',message:item.name+' venceu em '+dueText+' · '+money(alertAmount)});continue;}
       const when=daysUntil===0?'vence hoje':daysUntil===1?'vence amanhã':'vence em '+daysUntil+' dias';
-      alerts.push({kind:'due',title:'Conta próxima de vencer',message:item.name+' '+when+' · '+money(item.amount)});
+      alerts.push({kind:'due',title:'Conta próxima de vencer',message:item.name+' '+when+' · '+money(alertAmount)});
     }
     const addLimitAlert=(nearTitle,overTitle,amount,limit,label)=>{if(limit<=0||amount<limit*.8)return;const percent=Math.round(amount/limit*100);alerts.push({kind:amount>=limit?'over':'limit',title:amount>=limit?overTitle:nearTitle,message:money(amount)+' de '+money(limit)+' '+label+' · '+percent+'%'});};
     addLimitAlert('Fixos vigentes próximos de atingir o limite','Limite de fixos vigentes atingido',fixedAmount,monthlyIncome*allocation.fixed/100,'utilizados');
