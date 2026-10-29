@@ -159,7 +159,7 @@ body{background-color:#f2f7fa;background-image:radial-gradient(ellipse at 8% 0%,
 .panel{border-radius:16px;transition:box-shadow .2s,border-color .2s}
 .panel:hover{border-color:#c8dce4;box-shadow:0 12px 30px rgba(23,60,77,.085)}
 .summary-card{border-radius:16px}
-.summary-card:not(.balance-card){background:rgba(255,255,255,.9)}
+
 .summary-card strong{letter-spacing:-.9px}
 .balance-card{background:linear-gradient(135deg,#102f43 0%,#115a67 58%,#168d83 130%);box-shadow:0 12px 28px rgba(17,91,103,.2)}
 .balance-card .icon-circle{background:rgba(255,255,255,.13);color:#d4f5ef}
