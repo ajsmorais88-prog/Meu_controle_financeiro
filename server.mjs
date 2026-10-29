@@ -1307,7 +1307,7 @@ async function main() {
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     const pathname = url.pathname;
     try {
-      if (pathname.startsWith('/api/') && req.method !== 'GET' && req.method !== 'HEAD' && pathname !== '/api/webhooks/pluggy') {
+      if (pathname.startsWith('/api/') && req.method !== 'GET' && req.method !== 'HEAD' && !['/api/webhooks/pluggy', '/api/webhooks/mercadopago'].includes(pathname)) {
         if (!requestOriginAllowed(req)) { send(res, 403, { error: 'Origem da requisição não autorizada.' }); return; }
         const hasBody = Number(req.headers['content-length'] || 0) > 0 || Boolean(req.headers['transfer-encoding']);
         if (hasBody && !String(req.headers['content-type'] || '').toLowerCase().startsWith('application/json')) {
@@ -1474,6 +1474,25 @@ async function main() {
         send(res, 200, { ok: true }, { 'Set-Cookie': clearSessionCookie(req) });
         return;
       }
+      if (req.method === 'POST' && pathname === '/api/webhooks/mercadopago') {
+        let event;
+        try { event = await readJson(req, 64 * 1024); }
+        catch { send(res, 400, { error: 'Payload do webhook inválido.' }); return; }
+        if (!mercadoPagoConfigured()) { send(res, 503, { error: 'Webhook de pagamentos não configurado.' }); return; }
+        if (!mercadoPagoSignatureValid(req, url, event)) { send(res, 401, { error: 'Assinatura de webhook inválida.' }); return; }
+        const eventType = String(event.type || event.topic || url.searchParams.get('topic') || '');
+        const dataId = String(event.data?.id || url.searchParams.get('data.id') || '');
+        if (!dataId || !['payment', 'subscription_preapproval', 'subscription_authorized_payment'].includes(eventType)) {
+          send(res, 200, { received: true, ignored: true });
+          return;
+        }
+        const webhookWork = processMercadoPagoWebhook(event, eventType, dataId)
+          .catch(error => console.error('[mercadopago-webhook]', JSON.stringify({ event: 'processing_failed', eventType, code: error?.status || error?.code || 'processing_error' })));
+        if (process.env.VERCEL) waitUntil(webhookWork);
+        send(res, 200, { received: true });
+        if (!process.env.VERCEL) setImmediate(() => { void webhookWork; });
+        return;
+      }
       if (req.method === 'POST' && pathname === '/api/webhooks/pluggy') {
         const expectedSecret = process.env.PLUGGY_WEBHOOK_SECRET;
         if (!expectedSecret) { send(res, 503, { error: 'Configure PLUGGY_WEBHOOK_SECRET no servidor.' }); return; }
@@ -1500,6 +1519,16 @@ async function main() {
         const account = await getUser(session.userId);
         const emailVerificationRoutes = new Set(['/api/account/email', '/api/account/email/request', '/api/account/email/verify']);
         if (!account?.emailVerifiedAt && !emailVerificationRoutes.has(pathname)) { send(res, 403, { error: 'Confirme seu e-mail para liberar o acesso aos dados financeiros.' }); return; }
+        const subscriptionStatusRoute = pathname === '/api/subscription/status';
+        if (account?.emailVerifiedAt && !await subscriptionIsActive(session.userId) && !subscriptionStatusRoute) {
+          send(res, 402, { error: 'Ative seu plano para acessar os dados financeiros.' }); return;
+        }
+        if (req.method === 'GET' && subscriptionStatusRoute) {
+          const subscription = await getUserSubscription(session.userId);
+          const access = subscriptionAccess(subscription);
+          send(res, 200, { active: access.active, plan: subscription?.plan || 'legacy', status: subscription?.status || 'active', currentPeriodEnd: subscription?.currentPeriodEnd || null });
+          return;
+        }
         if (req.method === 'GET' && pathname === '/api/account/email') {
           const user = await getUser(session.userId);
           send(res, 200, { email: user.email || null, verified: Boolean(user.emailVerifiedAt) });
@@ -1801,6 +1830,7 @@ async function main() {
       if (req.method === 'GET' && pathname === '/' && session) {
         const account = await getUser(session.userId);
         if (!account?.emailVerifiedAt) { res.writeHead(302, { Location: '/account-email' }); res.end(); return; }
+        if (!await subscriptionIsActive(session.userId)) { res.writeHead(302, { Location: '/checkout-pending' }); res.end(); return; }
       }
       if (req.method === 'GET' && pathname === '/login') {
         if (session) { res.writeHead(302, { Location: '/' }); res.end(); return; }
@@ -1827,6 +1857,14 @@ async function main() {
         htmlResponse(res, accountEmailPage(nonce, await getUser(session.userId)), nonce);
         return;
       }
+      if (req.method === 'GET' && pathname === '/checkout-pending') {
+        if (!session) { res.writeHead(302, { Location: '/login' }); res.end(); return; }
+        const subscription = await getUserSubscription(session.userId);
+        if (subscriptionAccess(subscription).active) { res.writeHead(302, { Location: '/' }); res.end(); return; }
+        const nonce = randomBytes(18).toString('base64');
+        htmlResponse(res, subscriptionPage(nonce, subscription), nonce);
+        return;
+      }
       if (!session) {
         if (req.method === 'GET' && pathname === '/index.html') {
           const nonce = randomBytes(18).toString('base64');
@@ -1841,6 +1879,7 @@ async function main() {
       if (pathname.endsWith('.html')) {
         const account = await getUser(session.userId);
         if (!account?.emailVerifiedAt) { res.writeHead(302, { Location: '/account-email' }); res.end(); return; }
+        if (!await subscriptionIsActive(session.userId)) { res.writeHead(302, { Location: '/checkout-pending' }); res.end(); return; }
       }
       await serveStatic(req, res, pathname);
     } catch (error) {
