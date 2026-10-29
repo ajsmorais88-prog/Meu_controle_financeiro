@@ -1324,10 +1324,13 @@ async function main() {
         const remote = requestAddress(req);
         if (await incrementRateLimit('signup', remote, 15 * 60 * 1000) > 5) { send(res, 429, { error: 'Muitos cadastros deste endereço. Aguarde 15 minutos e tente novamente.' }); return; }
         if (!emailDeliveryConfigured()) { send(res, 503, { error: 'Cadastro temporariamente indisponível. O envio de e-mail precisa estar configurado para confirmar a conta.' }); return; }
+        if (!mercadoPagoConfigured()) { send(res, 503, { error: 'Cadastro temporariamente indisponível. Configure o Mercado Pago no servidor.' }); return; }
         const body = await readJson(req);
         const username = String(body.username || '').trim();
         const email = normalizeEmail(body.email);
         const password = String(body.password || '');
+        const plan = String(body.plan || '');
+        if (!paymentPlan(plan)) { send(res, 400, { error: 'Escolha o plano mensal ou anual.' }); return; }
         if (username.length < 3 || username.length > 40 || !validEmail(email) || password.length < 12 || password.length > 200 || password !== String(body.confirmPassword || '')) { send(res, 400, { error: 'Informe um usuário, e-mail válido e senha de pelo menos 12 caracteres confirmada.' }); return; }
         const salt = randomBytes(16);
         const hash = await pbkdf(password, salt);
@@ -1342,14 +1345,25 @@ async function main() {
           if (error.code === '23505' || String(error.message).includes('UNIQUE')) { send(res, 409, { error: 'Este nome de usuário ou e-mail já está cadastrado.' }); return; }
           throw error;
         }
+        let checkout;
+        try {
+          checkout = await createMercadoPagoCheckout(req, id, email, plan);
+          const now = new Date().toISOString();
+          await dbRun('INSERT INTO user_subscriptions (user_id, plan, status, provider, provider_id, checkout_url, external_reference, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            id, plan, 'pending', 'mercadopago', checkout.providerId || null, checkout.url, checkout.externalReference, now, now);
+        } catch (error) {
+          await dbRun('DELETE FROM users WHERE id = ?', id);
+          send(res, error.status || 502, { error: error.message || 'Não foi possível iniciar o pagamento. Tente novamente.' });
+          return;
+        }
         await clearRateLimit('auth', remote);
         let emailVerificationSent = false, emailMessage = '';
         try {
           const code = await createEmailCode(id, email, 'verify');
-          await sendMail(email, 'Verifique seu e-mail · Minhas Finanças', `Seu código de verificação é ${code}. Ele expira em 15 minutos. Se você não iniciou o cadastro, ignore esta mensagem.`);
+          await sendMail(email, 'Verifique seu e-mail · Minhas Finanças', 'Seu código de verificação é ' + code + '. Ele expira em 15 minutos. Se você não iniciou o cadastro, ignore esta mensagem.');
           emailVerificationSent = true;
         } catch (error) { emailMessage = error.message || 'Não foi possível enviar o código de verificação.'; }
-        await createSession(res, req, await getUser(id), { recoveryCode, emailVerificationSent, emailMessage });
+        await createSession(res, req, await getUser(id), { recoveryCode, emailVerificationSent, emailMessage, checkoutUrl: checkout.url, plan });
         return;
       }
       if (req.method === 'POST' && pathname === '/api/password-reset/request') {
