@@ -150,6 +150,190 @@ async function getUserCount() {
   return Number(row?.count) || 0;
 }
 
+function paymentPlan(plan) {
+  if (plan === 'annual') return { name: 'Anual', amount: 200, interval: '12 meses', days: 365 };
+  if (plan === 'monthly') return { name: 'Mensal', amount: 25, interval: '1 mês', days: 32 };
+  return null;
+}
+
+function mercadoPagoConfigured() {
+  return Boolean(String(process.env.MERCADOPAGO_ACCESS_TOKEN || '').trim() && String(process.env.MERCADOPAGO_WEBHOOK_SECRET || '').trim());
+}
+
+function publicOriginForRequest(req) {
+  const configured = String(process.env.PUBLIC_ORIGIN || process.env.RENDER_EXTERNAL_URL || '').trim();
+  if (configured) return new URL(configured).origin;
+  if (process.env.VERCEL && req.headers.host) return 'https://' + req.headers.host;
+  const proto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim() || 'http';
+  return proto + '://' + String(req.headers.host || 'localhost');
+}
+
+function validateMercadoPagoCheckoutUrl(value) {
+  let url;
+  try { url = new URL(String(value || '')); } catch { throw Object.assign(new Error('O Mercado Pago não retornou um endereço de checkout válido.'), { status: 502 }); }
+  if (url.protocol !== 'https:' || !/(^|\.)mercadopago\.com(\.br)?$/i.test(url.hostname)) throw Object.assign(new Error('O Mercado Pago retornou um endereço de checkout não autorizado.'), { status: 502 });
+  return url.toString();
+}
+
+async function mercadoPagoRequest(apiPath, options = {}) {
+  const accessToken = String(process.env.MERCADOPAGO_ACCESS_TOKEN || '').trim();
+  if (!accessToken) throw Object.assign(new Error('Pagamento indisponível. Configure o acesso do Mercado Pago no servidor.'), { status: 503 });
+  let response;
+  try {
+    response = await fetch('https://api.mercadopago.com' + apiPath, {
+      method: options.method || 'GET',
+      headers: { Authorization: 'Bearer ' + accessToken, Accept: 'application/json', ...(options.body ? { 'Content-Type': 'application/json' } : {}) },
+      ...(options.body ? { body: JSON.stringify(options.body) } : {}),
+      signal: AbortSignal.timeout(12000)
+    });
+  } catch {
+    throw Object.assign(new Error('Não foi possível conectar ao Mercado Pago. Tente novamente.'), { status: 502 });
+  }
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    console.error('[mercadopago]', JSON.stringify({ event: 'api_request_failed', endpoint: apiPath.split('?')[0], status: response.status }));
+    throw Object.assign(new Error('O Mercado Pago não conseguiu iniciar este pagamento. Confira a conta vendedora e tente novamente.'), { status: 502 });
+  }
+  return result;
+}
+
+async function createMercadoPagoCheckout(req, userId, email, plan) {
+  const selected = paymentPlan(plan);
+  if (!selected) throw Object.assign(new Error('Escolha um plano válido.'), { status: 400 });
+  if (!mercadoPagoConfigured()) throw Object.assign(new Error('Cadastro indisponível: configure o token e a assinatura de webhook do Mercado Pago no servidor.'), { status: 503 });
+  const origin = publicOriginForRequest(req);
+  const externalReference = 'minhas-financas:' + userId + ':' + plan;
+  const backUrl = origin + '/?pagamento=retorno';
+  if (plan === 'annual') {
+    const preference = await mercadoPagoRequest('/checkout/preferences', {
+      method: 'POST',
+      body: {
+        items: [{ id: 'minhas-financas-anual', title: 'Minhas Finanças · Plano anual', quantity: 1, currency_id: 'BRL', unit_price: selected.amount }],
+        payer: { email },
+        external_reference: externalReference,
+        notification_url: origin + '/api/webhooks/mercadopago',
+        back_urls: { success: backUrl, pending: backUrl, failure: backUrl },
+        auto_return: 'approved',
+        payment_methods: { installments: 3, default_installments: 1 }
+      }
+    });
+    return { url: validateMercadoPagoCheckoutUrl(preference.init_point), providerId: String(preference.id || ''), externalReference };
+  }
+  const subscription = await mercadoPagoRequest('/preapproval', {
+    method: 'POST',
+    body: {
+      reason: 'Minhas Finanças · Assinatura mensal',
+      external_reference: externalReference,
+      payer_email: email,
+      back_url: backUrl,
+      auto_recurring: { frequency: 1, frequency_type: 'months', transaction_amount: selected.amount, currency_id: 'BRL' }
+    }
+  });
+  return { url: validateMercadoPagoCheckoutUrl(subscription.init_point), providerId: String(subscription.id || ''), externalReference };
+}
+
+async function getUserSubscription(userId) {
+  return await dbGet('SELECT user_id AS "userId", plan, status, provider, provider_id AS "providerId", checkout_url AS "checkoutUrl", external_reference AS "externalReference", current_period_end AS "currentPeriodEnd", last_payment_id AS "lastPaymentId" FROM user_subscriptions WHERE user_id = ?', userId);
+}
+
+function subscriptionAccess(subscription) {
+  if (!subscription) return { active: true, legacy: true };
+  const end = subscription.currentPeriodEnd ? Date.parse(subscription.currentPeriodEnd) : NaN;
+  const withinPeriod = !Number.isFinite(end) || end > Date.now();
+  return { active: withinPeriod && (subscription.status === 'active' || subscription.status === 'canceled'), legacy: false };
+}
+
+async function subscriptionIsActive(userId) {
+  return subscriptionAccess(await getUserSubscription(userId)).active;
+}
+
+function periodEndFromNow(plan) {
+  const end = new Date();
+  if (plan === 'annual') end.setFullYear(end.getFullYear() + 1);
+  else end.setMonth(end.getMonth() + 1);
+  return end.toISOString();
+}
+
+function mercadoPagoSignatureValid(req, url, body) {
+  const secret = String(process.env.MERCADOPAGO_WEBHOOK_SECRET || '').trim();
+  const signature = String(req.headers['x-signature'] || '');
+  const requestId = String(req.headers['x-request-id'] || '');
+  const dataId = String(url.searchParams.get('data.id') || body?.data?.id || '').trim();
+  if (!secret || !signature || !requestId || !dataId) return false;
+  const parts = Object.fromEntries(signature.split(',').map(part => part.trim().split('=', 2)).filter(pair => pair.length === 2));
+  if (!parts.ts || !parts.v1 || !/^[a-f0-9]{64}$/i.test(parts.v1)) return false;
+  const manifest = 'id:' + dataId + ';request-id:' + requestId + ';ts:' + parts.ts + ';';
+  const expected = createHmac('sha256', secret).update(manifest).digest();
+  const received = Buffer.from(parts.v1, 'hex');
+  return expected.length === received.length && timingSafeEqual(expected, received);
+}
+
+async function processMercadoPagoWebhook(event, eventType, dataId) {
+  const eventKey = String(event.id || eventType + ':' + dataId);
+  const accepted = await dbGet('INSERT INTO mercadopago_webhook_events (event_id, received_at) VALUES (?, ?) ON CONFLICT(event_id) DO NOTHING RETURNING event_id', eventKey, new Date().toISOString());
+  if (!accepted) return;
+  await dbRun('DELETE FROM mercadopago_webhook_events WHERE received_at < ?', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString());
+  if (eventType === 'payment') {
+    const payment = await mercadoPagoRequest('/v1/payments/' + encodeURIComponent(dataId));
+    const externalReference = String(payment.external_reference || '');
+    const match = externalReference.match(/^minhas-financas:([0-9a-f-]{36}):(annual|monthly)$/i);
+    if (!match) return;
+    const [, userId, plan] = match;
+    const subscription = await getUserSubscription(userId);
+    const selected = paymentPlan(plan);
+    if (!subscription || subscription.externalReference !== externalReference || subscription.plan !== plan || Number(payment.transaction_amount) !== selected.amount || String(payment.currency_id).toUpperCase() !== 'BRL') return;
+    if (plan === 'annual' && payment.status === 'approved') {
+      await dbRun('UPDATE user_subscriptions SET status = ?, current_period_end = ?, last_payment_id = ?, updated_at = ? WHERE user_id = ?',
+        'active', periodEndFromNow('annual'), String(payment.id || dataId), new Date().toISOString(), userId);
+    } else if (plan === 'annual' && ['refunded', 'charged_back', 'cancelled'].includes(String(payment.status))) {
+      await dbRun('UPDATE user_subscriptions SET status = ?, updated_at = ? WHERE user_id = ?', 'refunded', new Date().toISOString(), userId);
+    }
+    return;
+  }
+  if (eventType === 'subscription_preapproval') {
+    const subscriptionData = await mercadoPagoRequest('/preapproval/' + encodeURIComponent(dataId));
+    const externalReference = String(subscriptionData.external_reference || '');
+    const match = externalReference.match(/^minhas-financas:([0-9a-f-]{36}):monthly$/i);
+    if (!match) return;
+    const userId = match[1];
+    const subscription = await getUserSubscription(userId);
+    if (!subscription || subscription.plan !== 'monthly' || subscription.externalReference !== externalReference) return;
+    const providerStatus = String(subscriptionData.status || '').toLowerCase();
+    if (providerStatus === 'cancelled' || providerStatus === 'canceled') {
+      await dbRun('UPDATE user_subscriptions SET status = ?, provider_id = ?, updated_at = ? WHERE user_id = ?', 'canceled', String(subscriptionData.id || dataId), new Date().toISOString(), userId);
+    } else {
+      await dbRun('UPDATE user_subscriptions SET provider_id = ?, updated_at = ? WHERE user_id = ?', String(subscriptionData.id || dataId), new Date().toISOString(), userId);
+    }
+    return;
+  }
+  if (eventType === 'subscription_authorized_payment') {
+    const invoice = await mercadoPagoRequest('/authorized_payments/' + encodeURIComponent(dataId));
+    const payment = invoice.payment || {};
+    const subscriptionId = String(invoice.preapproval_id || '');
+    const externalReference = String(invoice.external_reference || '');
+    let subscription = subscriptionId ? await dbGet('SELECT user_id AS "userId", plan, external_reference AS "externalReference" FROM user_subscriptions WHERE provider_id = ?', subscriptionId) : null;
+    if (!subscription && externalReference) subscription = await dbGet('SELECT user_id AS "userId", plan, external_reference AS "externalReference" FROM user_subscriptions WHERE external_reference = ?', externalReference);
+    if (!subscription || subscription.plan !== 'monthly' || Number(invoice.transaction_amount) !== 25 || String(invoice.currency_id).toUpperCase() !== 'BRL') return;
+    if (payment.status === 'approved') {
+      await dbRun('UPDATE user_subscriptions SET status = ?, provider_id = COALESCE(?, provider_id), current_period_end = ?, last_payment_id = ?, updated_at = ? WHERE user_id = ?',
+        'active', subscriptionId || null, periodEndFromNow('monthly'), String(payment.id || dataId), new Date().toISOString(), subscription.userId);
+    }
+  }
+}
+
+function subscriptionPage(nonce, subscription) {
+  const selected = paymentPlan(subscription?.plan);
+  const amount = selected ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(selected.amount) : '';
+  const planName = selected?.name || 'Assinatura';
+  const detail = subscription?.plan === 'annual'
+    ? 'Plano anual: R$ 200,00 por 12 meses. Pagamento único, com até 3 parcelas no cartão. A renovação é manual.'
+    : 'Plano mensal: R$ 25,00 por mês, com renovação recorrente. Cancele a assinatura no Mercado Pago.';
+  const checkoutUrl = subscription?.checkoutUrl ? validateMercadoPagoCheckoutUrl(subscription.checkoutUrl) : '';
+  const paymentLink = checkoutUrl ? '<a class="button primary" href="' + checkoutUrl.replace(/&/g, '&amp;').replace(/"/g, '&quot;') + '" rel="noopener noreferrer">Continuar para o Mercado Pago</a>' : '';
+  return '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>Ative sua assinatura · Minhas Finanças</title><style nonce="' + nonce + '">*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f4f8f8;color:#173844;font:15px Arial,sans-serif}.box{width:min(520px,calc(100% - 32px));padding:32px;border:1px solid #dce8eb;border-radius:18px;background:#fff;box-shadow:0 18px 55px #12364212}.brand{display:flex;align-items:center;gap:10px;margin-bottom:28px;font-size:17px;font-weight:700}.mark{display:grid;place-items:center;width:38px;height:38px;border-radius:12px;background:linear-gradient(145deg,#15877f,#145f71);color:#fff;font-size:18px}h1{margin:6px 0 10px;font-size:27px;letter-spacing:-.7px}.copy{color:#5d737c;font-size:13px;line-height:1.7}.price{margin:22px 0 8px;font-size:25px;font-weight:750;color:#153f43}.button{display:block;text-align:center;padding:14px 18px;margin-top:18px;border-radius:10px;background:#117b82;color:#fff;text-decoration:none;font-size:13px;font-weight:700}.secondary{background:#edf6f6;color:#176b73}.status{margin-top:18px;padding:12px;border-radius:10px;background:#f2f7f7;color:#4c6770;font-size:12px;line-height:1.6}</style></head><body><main class="box"><div class="brand"><span class="mark">M</span><span>Minhas Finanças</span></div><p class="eyebrow">ATIVAÇÃO DA CONTA</p><h1>Finalize sua assinatura</h1><p class="copy">' + detail + '</p><p class="price">' + amount + (subscription?.plan === 'annual' ? ' · 12 meses de acesso' : ' / mês') + '</p>' + paymentLink + '<p class="status" id="status">Aguardando confirmação segura do Mercado Pago. Depois do pagamento, confirme seu e-mail para liberar o painel.</p><a class="button secondary" href="/account-email">Confirmar meu e-mail</a><a class="button secondary" href="/">Atualizar situação</a></main><script nonce="' + nonce + '">async function check(){try{const r=await fetch("/api/subscription/status",{cache:"no-store"});if(r.ok){const s=await r.json();if(s.active){document.querySelector("#status").textContent="Pagamento confirmado. Atualizando o acesso…";location.replace("/");}}}catch{}}check();setInterval(check,5000);</script></body></html>';
+}
+
+
 async function getUserData(userId, key, fallback = null) {
   const row = await dbGet('SELECT value FROM user_data WHERE user_id = ? AND data_key = ?', userId, key);
   if (!row) return fallback;
