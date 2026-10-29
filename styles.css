@@ -207,3 +207,35 @@ dialog{border:1px solid #dce7ed}
 #reportsView .report-empty p{margin:0;font-size:13px;font-weight:600;color:#294759}
 @media(max-width:1000px){#reportsView .report-filters{grid-template-columns:minmax(0,1fr) 190px max-content max-content max-content}#reportsView .report-type-options{grid-template-columns:repeat(2,max-content)}}
 @media(max-width:680px){#reportsView .report-filters{display:flex;align-items:stretch;gap:14px;padding:17px}#reportsView .report-type-options{display:flex;width:100%;gap:8px;align-items:stretch}#reportsView .report-type-options legend{width:100%;margin-bottom:2px}#reportsView .report-type-options label{flex:1 1 145px;white-space:normal}#reportsView .report-filters>label{min-width:100%}#reportsView .report-panel{padding:18px 14px}#reportsView .report-preview-header{padding:14px}#reportsView .report-empty{margin-top:18px;padding:22px 14px}}
+
+/* Cabeçalho: hierarquia visual e adaptação responsiva */
+.app-shell{width:min(100%,1480px);margin-inline:auto;padding-inline:clamp(18px,3vw,40px)}
+.topbar{min-height:76px;height:auto;padding:12px 0;gap:24px}
+.brand{flex:0 1 auto;min-width:0;gap:11px;font-size:18px;letter-spacing:-.45px}
+.brand-mark{width:40px;height:40px;flex:0 0 40px;border-radius:12px;box-shadow:0 4px 12px rgba(16,83,75,.17)}
+.brand-mark svg{width:28px;height:28px}
+.top-actions{flex:0 0 auto;gap:10px}
+.top-actions .button{min-height:42px;border-radius:11px;padding:0 16px;font-size:12px;white-space:nowrap;transition:background .18s,border-color .18s,box-shadow .18s,transform .18s}
+.top-actions .button-outline{border:1px solid #d5e2e5;background:#fff;color:#176b73}
+.top-actions .button-outline:hover{border-color:#9dc7c9;background:#f4fbfa;box-shadow:0 4px 12px rgba(17,123,130,.08)}
+.top-actions .notification-trigger{width:42px;height:42px;padding:0;border-radius:12px}
+.top-actions .notification-trigger svg{width:19px;height:19px}
+.top-actions .logout-button{min-width:72px}
+.top-actions .button-dark{padding-inline:18px;box-shadow:0 5px 13px rgba(17,123,130,.18)}
+.top-actions .button-dark:hover{transform:translateY(-1px);box-shadow:0 7px 17px rgba(17,123,130,.23)}
+@media(max-width:700px){
+  .app-shell{padding-inline:18px}
+  .topbar{min-height:68px;gap:14px}
+  .brand{gap:9px;font-size:16px}
+  .brand-mark{width:38px;height:38px;flex-basis:38px}
+  .top-actions{gap:7px}
+  .top-actions .button{min-height:38px;padding-inline:12px;font-size:11px}
+  .top-actions .notification-trigger{width:38px;height:38px}
+}
+@media(max-width:460px){
+  .topbar{padding:12px 0;flex-wrap:wrap;row-gap:10px}
+  .brand{width:100%}
+  .top-actions{width:100%;justify-content:flex-end}
+  .top-actions .logout-button{min-width:58px}
+  .top-actions .button-dark{padding-inline:13px}
+}
