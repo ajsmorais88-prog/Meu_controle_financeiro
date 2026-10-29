@@ -467,6 +467,23 @@ async function initializeDatabase() {
       recovery_hash TEXT,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS user_subscriptions (
+      user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      plan TEXT NOT NULL,
+      status TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      provider_id TEXT,
+      checkout_url TEXT NOT NULL,
+      external_reference TEXT NOT NULL,
+      current_period_end TEXT,
+      last_payment_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS mercadopago_webhook_events (
+      event_id TEXT PRIMARY KEY,
+      received_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS user_data (
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       data_key TEXT NOT NULL,
