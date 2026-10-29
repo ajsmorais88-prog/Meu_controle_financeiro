@@ -1073,6 +1073,19 @@ async function initializeDatabaseWithRetry() {
 
 async function main() {
   await loadDotEnv();
+  if (process.env.VERCEL && process.env.VERCEL_ENV === 'preview') {
+    applicationHandler = async (req, res) => {
+      const pathname = new URL(req.url, `http://${req.headers.host || 'localhost'}`).pathname;
+      if (pathname.startsWith('/api/')) { send(res, 404, { error: 'APIs desativadas em previews isolados.' }); return; }
+      if (req.method === 'GET' && (pathname === '/' || pathname === '/index.html')) {
+        const nonce = randomBytes(18).toString('base64');
+        htmlResponse(res, publicPage(nonce), nonce);
+        return;
+      }
+      send(res, 404, { error: 'Rota não encontrada.' });
+    };
+    return;
+  }
   if (process.env.NODE_ENV === 'production') {
     const configuredOrigin = process.env.PUBLIC_ORIGIN || process.env.RENDER_EXTERNAL_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '');
     let publicOrigin;
