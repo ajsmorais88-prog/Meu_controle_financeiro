@@ -204,3 +204,23 @@ dialog{border:1px solid #dce7ed}
 .investment-allocation-donut::after{transform:translateZ(8px);box-shadow:0 3px 8px rgba(16,47,67,.1)}
 @media(max-width:700px){.monthly-week-track,.allocation-chart-track,.fixed-paid-track,.investment-month-track{perspective:450px}.monthly-week-fill,.fixed-paid-bar,.investment-month-bar{transform:perspective(280px) rotateY(-6deg);box-shadow:inset -3px 0 rgba(9,40,55,.12),2px 3px 0 rgba(16,47,67,.1)}.monthly-week-fill::after,.fixed-paid-bar::after,.investment-month-bar::after{right:-4px;width:4px}.card-projection-bar{transform:perspective(350px) rotateY(-3deg)}}
 @media(prefers-reduced-motion:reduce){.investment-allocation-donut,.card-projection-bar,.monthly-week-fill,.fixed-paid-bar,.investment-month-bar{transition:none!important}}
+
+/* Relatórios: filtros compactos e prévia mais clara */
+#reportsView .report-filters{display:grid;grid-template-columns:minmax(0,1fr) minmax(170px,210px) max-content max-content max-content;align-items:end;gap:14px 18px;min-height:0;margin:0 0 18px;padding:20px 24px;background:linear-gradient(145deg,rgba(255,255,255,.98),rgba(247,251,253,.98));box-shadow:0 10px 28px rgba(23,60,77,.07)}
+#reportsView .report-type-options{display:grid;grid-template-columns:repeat(4,max-content);align-items:center;gap:10px 16px;min-width:0}
+#reportsView .report-type-options legend{grid-column:1/-1;margin:0 0 2px;color:#547181;font-size:11px;font-weight:700;letter-spacing:.04em}
+#reportsView .report-type-options label{padding:8px 10px;border:1px solid #e1ebef;border-radius:9px;background:#fff;color:#294759;font-size:12px;white-space:nowrap;transition:border-color .18s,background .18s,box-shadow .18s}
+#reportsView .report-type-options label:has(input:checked){border-color:#b8dcd7;background:#eef9f7;box-shadow:inset 0 0 0 1px rgba(17,123,130,.04)}
+#reportsView .report-type-options input{accent-color:#117b82;width:17px;height:17px}
+#reportsView .report-filters>label{min-width:0;gap:7px;color:#547181;font-size:11px;font-weight:700}
+#reportsView .report-filters input[type=month]{width:100%;min-height:44px;border-color:#d5e3e9;border-radius:10px;background:#fff;color:#18332d;font:600 13px var(--font)}
+#reportsView .report-filters>.button{min-height:44px;white-space:nowrap;padding-inline:18px}
+#reportsView .report-panel{min-height:0;padding:26px;background:linear-gradient(155deg,#fff 0%,#fbfdfe 100%);box-shadow:0 10px 28px rgba(23,60,77,.06)}
+#reportsView .report-brand{margin-bottom:20px;padding-bottom:17px;border-bottom:1px solid #e7eef1;color:#173c4c}
+#reportsView .report-brand-mark{background:linear-gradient(145deg,#20a99b,#145b70);box-shadow:0 6px 15px rgba(17,123,130,.2)}
+#reportsView .report-preview-header{padding:16px 18px;border:1px solid #e3ecef;border-radius:12px;background:linear-gradient(110deg,#f5fafb,#f8fbfd)}
+#reportsView .report-empty{max-width:560px;margin:28px auto 6px;padding:28px 20px;border:1px dashed #d6e4e9;border-radius:14px;background:linear-gradient(145deg,#fbfdfe,#f4f9fa);color:#5e7482}
+#reportsView .report-empty span{display:inline-grid;place-items:center;width:48px;height:48px;margin-bottom:10px;border-radius:15px;background:#e8f5f4;color:#137d7e;font-size:25px}
+#reportsView .report-empty p{margin:0;font-size:13px;font-weight:600;color:#294759}
+@media(max-width:1000px){#reportsView .report-filters{grid-template-columns:minmax(0,1fr) 190px max-content max-content max-content}#reportsView .report-type-options{grid-template-columns:repeat(2,max-content)}}
+@media(max-width:680px){#reportsView .report-filters{display:flex;align-items:stretch;gap:14px;padding:17px}#reportsView .report-type-options{display:flex;width:100%;gap:8px;align-items:stretch}#reportsView .report-type-options legend{width:100%;margin-bottom:2px}#reportsView .report-type-options label{flex:1 1 145px;white-space:normal}#reportsView .report-filters>label{min-width:100%}#reportsView .report-panel{padding:18px 14px}#reportsView .report-preview-header{padding:14px}#reportsView .report-empty{margin-top:18px;padding:22px 14px}}
