@@ -143,3 +143,47 @@ dialog{border-radius:18px;box-shadow:0 24px 80px #102c2438}dialog form{padding:2
 .overview-bank-summary{grid-template-columns:repeat(4,minmax(0,1fr))}@media(max-width:700px){.overview-bank-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.overview-bank-summary .balance-card{grid-column:span 2}}
 
 .month-filter select{appearance:none;min-width:118px;height:40px;padding:0 38px 0 12px;border:1px solid #d7e3da;border-radius:9px;background-color:#fff;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23215a47' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;color:#18332d;font:600 13px var(--font);box-shadow:0 2px 6px #18332d08;cursor:pointer;transition:border-color .18s,box-shadow .18s,background-color .18s}.month-filter select:hover{border-color:#9bb9a4;background-color:#fbfdfb}.month-filter select:focus-visible{outline:none;border-color:#438565;box-shadow:0 0 0 3px #43856524}.month-filter select option{color:#18332d;background:#fff}
+
+/* Modernização visual tecnológica */
+:root{--ink:#142b3d;--muted:#687f90;--line:#dce7ed;--green:#117b82;--mint:#e7f7f5;--orange:#d27a51;--paper:#f2f7fa;--white:#fff}
+body{background-color:#f2f7fa;background-image:radial-gradient(ellipse at 8% 0%,rgba(34,190,176,.11),transparent 30%),radial-gradient(ellipse at 94% 12%,rgba(84,150,231,.1),transparent 28%),linear-gradient(180deg,#f4f8fb 0%,#eef4f7 100%);background-attachment:fixed}
+.app-shell{max-width:1440px;padding-inline:clamp(18px,4vw,58px)}
+.topbar{position:relative;background:rgba(255,255,255,.74);backdrop-filter:blur(16px);border-bottom-color:#dce7ed}
+.brand-mark{background:linear-gradient(145deg,#20a99b,#145b70);box-shadow:0 7px 18px rgba(17,123,130,.24)}
+.view-tabs{position:sticky;top:8px;z-index:4;padding:5px;border:1px solid rgba(207,222,230,.9);border-radius:14px;background:rgba(255,255,255,.84);backdrop-filter:blur(16px);box-shadow:0 8px 24px rgba(23,60,77,.07);overflow-x:auto;scrollbar-width:thin}
+.view-tab{border-radius:10px;white-space:nowrap;transition:background .18s,color .18s,box-shadow .18s}
+.view-tab:hover{background:#f1f7f8;color:#176a73}
+.view-tab.active{background:linear-gradient(135deg,#e5f6f4,#edf4fb);color:#116b73;box-shadow:inset 0 0 0 1px #d8eceb}
+.view-tab.active:after{display:none}
+.panel,.summary-card,.financial-alerts{border-color:rgba(210,225,232,.9);box-shadow:0 8px 26px rgba(23,60,77,.055)}
+.panel{border-radius:16px;transition:box-shadow .2s,border-color .2s}
+.panel:hover{border-color:#c8dce4;box-shadow:0 12px 30px rgba(23,60,77,.085)}
+.summary-card{border-radius:16px}
+.summary-card:not(.balance-card){background:rgba(255,255,255,.9)}
+.summary-card strong{letter-spacing:-.9px}
+.balance-card{background:linear-gradient(135deg,#102f43 0%,#115a67 58%,#168d83 130%);box-shadow:0 12px 28px rgba(17,91,103,.2)}
+.balance-card .icon-circle{background:rgba(255,255,255,.13);color:#d4f5ef}
+.icon-green{background:#e7f6f1;color:#15836e}
+.icon-orange{background:#fff1e9;color:#c96b43}
+.eyebrow{color:#638392}
+h1 em{color:#147b82}
+.button-dark{background:linear-gradient(135deg,#13877f,#145f71);box-shadow:0 5px 14px rgba(17,123,130,.16);transition:transform .18s,box-shadow .18s,filter .18s}
+.button-dark:hover{filter:brightness(1.04);box-shadow:0 8px 20px rgba(17,123,130,.25)}
+.button-outline{border-color:#d4e2e8;color:#176c74;background:rgba(255,255,255,.9)}
+.button-outline:hover{background:#eef8f7;border-color:#a9d1ce}
+.date-box,.month-filter input,.month-filter select,.budget-input{border-color:#d6e3e9;box-shadow:0 2px 7px rgba(25,65,82,.035)}
+.date-box{background:rgba(255,255,255,.9)}
+input:focus-visible,select:focus-visible,button:focus-visible{outline:3px solid rgba(22,145,145,.23);outline-offset:2px}
+.progress-track,.allocation-mini-track,.card-limit-track{background:#e7eef1}
+.progress-fill{background:linear-gradient(90deg,#22a98f,#176e80)}
+.progress-fill.over{background:linear-gradient(90deg,#dd9a61,#c96a51)}
+.allocation-card{border-color:#dbe7e9;background:linear-gradient(145deg,#fff,#f9fcfc);box-shadow:0 4px 14px rgba(23,60,77,.035)}
+.allocation-card[open]{border-color:#add7d2;box-shadow:0 8px 20px rgba(17,123,130,.08)}
+.allocation-icon{background:linear-gradient(145deg,#e8f6f3,#edf4fa);color:#147b82}
+.financial-alerts{background:linear-gradient(135deg,rgba(255,255,255,.96),rgba(244,250,251,.96))}
+.credit-card-item{border-color:#dce7ed;background:linear-gradient(145deg,#fff,#f7fbfc);box-shadow:0 6px 18px rgba(23,60,77,.055)}
+.credit-card-visual{background:linear-gradient(145deg,#164c5b,#102b3e 62%,#187b79);box-shadow:inset 0 0 0 1px #ffffff20,0 8px 17px #102b3e20}
+.transaction-row,.fixed-cost-row,.investment-row,.purchase-row{border-color:#e9eff2}
+dialog{border:1px solid #dce7ed}
+@media(max-width:700px){.app-shell{padding-inline:16px}.view-tabs{top:4px;border-radius:12px}.panel{border-radius:14px}.topbar{background:rgba(255,255,255,.86)}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important}}
