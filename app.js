@@ -686,10 +686,32 @@
       renderAllTransactions();
       accountsList.replaceChildren();
       for(const account of importedAccounts){
-        const row=document.createElement('div');row.className='brokerage-position-row';
-        const name=document.createElement('span');name.textContent=account.name;
-        const balance=document.createElement('strong');balance.textContent=money(account.balance);
-        row.append(name,balance);accountsList.append(row);
+        const accountBlock=document.createElement('section');accountBlock.className='mypluggy-account-block';
+        const header=document.createElement('div');header.className='mypluggy-account-heading';
+        const name=document.createElement('strong');name.textContent=account.name;
+        const balance=document.createElement('span');balance.textContent=money(account.balance);
+        header.append(name,balance);accountBlock.append(header);
+        const accountTransactions=transactions.filter(transaction=>transaction.paymentMethod==='openfinance'&&transaction.bankAccountId===String(account.id)).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
+        if(accountTransactions.length){
+          const tableWrap=document.createElement('div');tableWrap.className='mypluggy-transaction-wrap';
+          const table=document.createElement('table');table.className='mypluggy-transaction-table';
+          const thead=document.createElement('thead'),headRow=document.createElement('tr');
+          for(const label of ['Data','Descrição','Categoria','Valor']){const th=document.createElement('th');th.scope='col';th.textContent=label;headRow.append(th);}
+          thead.append(headRow);table.append(thead);
+          const tbody=document.createElement('tbody');
+          for(const transaction of accountTransactions){
+            const row=document.createElement('tr');
+            const date=document.createElement('td');date.textContent=new Intl.DateTimeFormat('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'}).format(parseDate(transaction.date));
+            const description=document.createElement('td');description.textContent=transaction.description||'Transação';
+            const category=document.createElement('td');category.textContent=transaction.category||'Sem categoria';
+            const amount=document.createElement('td');amount.className=transaction.type==='income'?'income':'expense';amount.textContent=`${transaction.type==='income'?'+':'−'} ${money(transaction.amount)}`;
+            row.append(date,description,category,amount);tbody.append(row);
+          }
+          table.append(tbody);tableWrap.append(table);accountBlock.append(tableWrap);
+        }else{
+          const empty=document.createElement('p');empty.className='mypluggy-transactions-empty';empty.textContent='Nenhum lançamento retornado para esta conta.';accountBlock.append(empty);
+        }
+        accountsList.append(accountBlock);
       }
       accountsList.hidden=!importedAccounts.length;
       status.textContent=`Sincronização concluída · ${importedAccounts.length} conta(s), ${added} nova(s) e ${updated} atualizada(s).`;
