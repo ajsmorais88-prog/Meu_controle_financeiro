@@ -20,6 +20,8 @@
     const sessionResponse = await fetch('/api/session', { cache: 'no-store' });
     sessionInfo = await sessionResponse.json();
     if (!sessionInfo.authenticated || !sessionInfo.userId) { location.href = '/login'; return; }
+    const adminAccess = document.getElementById('adminAccess');
+    if (adminAccess) adminAccess.hidden = !sessionInfo.isAdmin;
     let dataResponse = await fetch('/api/data', { cache: 'no-store' });
     let dataPayload = await dataResponse.json();
     if (!dataResponse.ok) throw new Error(dataPayload.error || 'Não foi possível carregar os dados da conta.');
