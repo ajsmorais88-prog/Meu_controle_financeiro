@@ -723,7 +723,9 @@ async function handleItemCreated(itemId, event) {
   const owner = ownerId ? await getUser(ownerId) : null;
   if (!owner) return;
   if (isMeuPluggyConnector(connectorName) && (!owner.emailVerifiedAt || !isAdminUser(owner))) return;
-  await writeBradescoItem(ownerId, { itemId, connectorName, connectedAt: new Date().toISOString() });
+  const linkedItem = { itemId, connectorId: Number(item.connector?.id || item.connectorId) || null, connectorName, connectedAt: new Date().toISOString() };
+  if (isMeuPluggyConnector(connectorName)) await upsertMeuPluggyItem(ownerId, linkedItem);
+  else await writeBradescoItem(ownerId, linkedItem);
   await setUserData(ownerId, 'pluggy_webhook_state', { eventId: event.eventId, event: event.event, itemId, receivedAt: new Date().toISOString() });
 }
 
@@ -735,8 +737,12 @@ async function handleItemUpdated(itemId, event) {
   const owner = ownerId ? await getUser(ownerId) : null;
   if (!owner) return;
   if (isMeuPluggyConnector(connectorName) && (!owner.emailVerifiedAt || !isAdminUser(owner))) return;
-  const saved = await readBradescoItem(ownerId);
-  await writeBradescoItem(ownerId, { ...saved, itemId, connectorName, updatedAt: new Date().toISOString() });
+  const updatedItem = { itemId, connectorId: Number(item.connector?.id || item.connectorId) || null, connectorName, updatedAt: new Date().toISOString() };
+  if (isMeuPluggyConnector(connectorName)) await upsertMeuPluggyItem(ownerId, updatedItem);
+  else {
+    const saved = await readBradescoItem(ownerId);
+    await writeBradescoItem(ownerId, { ...saved, ...updatedItem });
+  }
   await setUserData(ownerId, 'pluggy_webhook_state', { eventId: event.eventId, event: event.event, itemId, receivedAt: new Date().toISOString() });
 }
 
@@ -854,7 +860,33 @@ async function listPluggyTransactions(accountId) {
 }
 
 
+const MYPLUGGY_ITEMS_KEY = 'mypluggy_items';
 const MYPLUGGY_TRANSACTIONS_KEY = 'meu-controle-financeiro-transactions-v1';
+async function readMeuPluggyItems(userId) {
+  let items = await getUserData(userId, MYPLUGGY_ITEMS_KEY, []);
+  if (typeof items === 'string') { try { items = JSON.parse(items); } catch { items = []; } }
+  if (!Array.isArray(items)) items = [];
+  items = items.filter(item => item && typeof item.itemId === 'string' && item.itemId && isMeuPluggyConnector(item.connectorName));
+  if (items.length) return items;
+  const legacyItem = await readBradescoItem(userId);
+  if (legacyItem?.itemId && isMeuPluggyConnector(legacyItem.connectorName)) {
+    items = [legacyItem];
+    await setUserData(userId, MYPLUGGY_ITEMS_KEY, items);
+  }
+  return items;
+}
+async function writeMeuPluggyItems(userId, items) {
+  await setUserData(userId, MYPLUGGY_ITEMS_KEY, items);
+}
+async function upsertMeuPluggyItem(userId, item) {
+  const items = await readMeuPluggyItems(userId);
+  const index = items.findIndex(entry => String(entry.itemId) === String(item.itemId));
+  if (index < 0) items.push(item);
+  else items[index] = { ...items[index], ...item };
+  await writeMeuPluggyItems(userId, items);
+  return items;
+}
+
 const MYPLUGGY_BANK_ACCOUNTS_KEY = 'meu-controle-financeiro-bank-accounts-v1';
 const MYPLUGGY_SELECTED_ACCOUNT_KEY = 'meu-controle-financeiro-bank-selected-account-v1';
 
@@ -868,46 +900,71 @@ async function storedArray(userId, key) {
 }
 
 async function syncMeuPluggyIntoUserData(userId) {
-  const savedItem = await readBradescoItem(userId);
-  if (!savedItem?.itemId || !isMeuPluggyConnector(savedItem.connectorName)) {
-    const error = new Error('Conecte MeuPluggy nesta conta de administrador antes de sincronizar.');
+  const linkedItems = await readMeuPluggyItems(userId);
+  if (!linkedItems.length) {
+    const error = new Error('Adicione ao menos um ItemId MeuPluggy nesta conta de administrador.');
     error.status = 409;
     throw error;
   }
-  const item = await pluggyRequest(`/items/${encodeURIComponent(savedItem.itemId)}`);
-  if (!isMeuPluggyConnector(openFinanceConnectorName(item)) && Number(item.connector?.id || item.connectorId) !== 200) {
-    const error = new Error('A conexão salva não é do MeuPluggy. Reconecte a conta.');
-    error.status = 409;
-    throw error;
-  }
-  const accountData = await pluggyRequest(`/accounts?itemId=${encodeURIComponent(savedItem.itemId)}`);
-  const accounts = Array.isArray(accountData.results) ? accountData.results : Array.isArray(accountData) ? accountData : [];
-  const transactionsByAccount = await Promise.all(accounts.map(async account => ({ account, transactions: await listPluggyTransactions(account.id) })));
-  const transactions = transactionsByAccount.flatMap(({ account, transactions: entries }) => entries.map(entry => {
-    const amount = Math.abs(Number(entry.amount));
-    const date = String(entry.date || entry.createdAt || '').slice(0, 10);
-    if (!Number.isFinite(amount) || amount <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
-    const rawType = String(entry.type || '').toUpperCase();
-    const signedAmount = Number(entry.amount);
-    const type = rawType.includes('CREDIT') || rawType === 'INCOME' ? 'income' : rawType.includes('DEBIT') || rawType === 'EXPENSE' ? 'expense' : signedAmount < 0 ? 'expense' : 'income';
-    const category = typeof entry.category === 'string' ? entry.category : entry.category?.description || entry.category?.name || entry.categoryDescription || entry.categoryName || 'Open Finance';
-    return {
-      id: `mypluggy-${account.id}-${entry.id}`,
-      externalId: `mypluggy:${account.id}:${entry.id}`,
-      accountId: String(account.id),
-      description: String(entry.description || entry.descriptionRaw || 'Transação MeuPluggy').slice(0, 120),
-      type,
-      category: String(category).slice(0, 60),
-      amount,
-      date,
-      paymentMethod: 'openfinance',
-      accountName: String(account.name || account.type || 'Conta MeuPluggy').slice(0, 80),
-      bankAccountId: `pluggy-${account.id}`
-    };
-  }).filter(Boolean));
+  const results = await Promise.all(linkedItems.map(async savedItem => {
+    try {
+      const item = await pluggyRequest(`/items/${encodeURIComponent(savedItem.itemId)}`);
+      if (!isMeuPluggyConnector(openFinanceConnectorName(item)) && Number(item.connector?.id || item.connectorId) !== 200) {
+        const error = new Error('A conexão salva não é do MeuPluggy.');
+        error.status = 409;
+        throw error;
+      }
+      const accountData = await pluggyRequest(`/accounts?itemId=${encodeURIComponent(savedItem.itemId)}`);
+      const accounts = Array.isArray(accountData.results) ? accountData.results : Array.isArray(accountData) ? accountData : [];
+      const transactionsByAccount = await Promise.all(accounts.map(async account => ({ account, transactions: await listPluggyTransactions(account.id) })));
+      const transactions = transactionsByAccount.flatMap(({ account, transactions: entries }) => entries.map(entry => {
+        const amount = Math.abs(Number(entry.amount));
+        const date = String(entry.date || entry.createdAt || '').slice(0, 10);
+        if (!Number.isFinite(amount) || amount <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+        const rawType = String(entry.type || '').toUpperCase();
+        const signedAmount = Number(entry.amount);
+        const type = rawType.includes('CREDIT') || rawType === 'INCOME' ? 'income' : rawType.includes('DEBIT') || rawType === 'EXPENSE' ? 'expense' : signedAmount < 0 ? 'expense' : 'income';
+        const category = typeof entry.category === 'string' ? entry.category : entry.category?.description || entry.category?.name || entry.categoryDescription || entry.categoryName || 'Open Finance';
+        return {
+          id: `mypluggy-${account.id}-${entry.id}`,
+          externalId: `mypluggy:${account.id}:${entry.id}`,
+          accountId: String(account.id),
+          description: String(entry.description || entry.descriptionRaw || 'Transação MeuPluggy').slice(0, 120),
+          type,
+          category: String(category).slice(0, 60),
+          amount,
+          date,
+          paymentMethod: 'openfinance',
+          accountName: String(account.name || account.type || 'Conta MeuPluggy').slice(0, 80),
+          bankAccountId: `pluggy-${account.id}`
+        };
+      }).filter(Boolean));
+      return { ok: true, savedItem, accounts, transactions };
+    } catch (error) {
+      return { ok: false, savedItem, error };
+    }
+  }));
+  const successful = results.filter(result => result.ok);
+  const failedItems = results.filter(result => !result.ok).map(result => ({
+    itemId: result.savedItem.itemId,
+    message: String(result.error?.message || 'Não foi possível sincronizar esta conexão.').slice(0, 180)
+  }));
+  if (!successful.length) throw results.find(result => !result.ok)?.error || new Error('Nenhum item MeuPluggy foi sincronizado.');
   const syncedAt = new Date().toISOString();
-  await writeBradescoItem(userId, { ...savedItem, connectorName: 'MeuPluggy', syncedAt });
+  const syncedItems = new Map(successful.map(result => [String(result.savedItem.itemId), result]));
+  const refreshedItems = linkedItems.map(savedItem => {
+    const result = syncedItems.get(String(savedItem.itemId));
+    return result ? {
+      ...savedItem,
+      connectorName: 'MeuPluggy',
+      syncedAt,
+      accountNames: result.accounts.map(account => String(account.name || account.type || 'Conta')).slice(0, 30)
+    } : savedItem;
+  });
+  await writeMeuPluggyItems(userId, refreshedItems);
 
+  const accounts = successful.flatMap(result => result.accounts);
+  const transactions = successful.flatMap(result => result.transactions);
   const existingTransactions = await storedArray(userId, MYPLUGGY_TRANSACTIONS_KEY);
   const transactionIndex = new Map(existingTransactions.map((transaction, index) => [String(transaction.externalId || ''), index]).filter(([id]) => id));
   let added = 0, updated = 0;
@@ -947,7 +1004,7 @@ async function syncMeuPluggyIntoUserData(userId) {
     }
   }
   return {
-    accountCount: importedAccounts.length, added, updated, syncedAt,
+    accountCount: importedAccounts.length, itemCount: successful.length, failedItems, added, updated, syncedAt,
     accounts: accounts.map(account => ({ id: String(account.id), name: String(account.name || account.type || 'Conta'), type: String(account.subtype || account.type || ''), balance: Number(account.balance) || 0, currencyCode: String(account.currencyCode || 'BRL') })),
     transactions
   };
@@ -1577,7 +1634,7 @@ async function main() {
           const admin = adminRow?.id ? await getUser(adminRow.id) : null;
           if (!admin?.emailVerifiedAt || !isAdminUser(admin)) { send(res, 404, { error: 'Conta administradora não encontrada.' }); return; }
           const result = await syncMeuPluggyIntoUserData(admin.id);
-          send(res, 200, { ok: true, accountCount: result.accountCount, added: result.added, updated: result.updated, syncedAt: result.syncedAt });
+          send(res, 200, { ok: true, accountCount: result.accountCount, itemCount: result.itemCount, failedItems: result.failedItems, added: result.added, updated: result.updated, syncedAt: result.syncedAt });
         } catch (error) {
           console.error('[mypluggy-daily-sync]', JSON.stringify({ status: error.status || 500, message: String(error.message || 'Falha na sincronização diária.').slice(0, 180) }));
           send(res, error.status || 502, { error: error.message || 'Não foi possível atualizar MeuPluggy.' });
@@ -2032,13 +2089,14 @@ async function main() {
           const adminAccount = await getUser(session.userId);
           if (!adminAccount?.emailVerifiedAt || !isAdminUser(adminAccount)) { send(res, 404, { error: 'Rota não encontrada.' }); return; }
           if (req.method === 'GET' && pathname === '/api/mypluggy/status') {
-            const item = await readBradescoItem(session.userId);
-            const connected = Boolean(item?.itemId && isMeuPluggyConnector(item.connectorName));
+            const items = await readMeuPluggyItems(session.userId);
+            const connected = items.length > 0;
             send(res, 200, {
               configured: Boolean(process.env.PLUGGY_CLIENT_ID && process.env.PLUGGY_CLIENT_SECRET),
               connected,
               connectorName: connected ? 'MeuPluggy' : '',
-              message: connected ? 'MeuPluggy conectado. Sincronize para importar suas movimentações.' : 'Conecte sua conta MeuPluggy nesta sessão de administrador.'
+              items: items.map(item => ({ itemId: item.itemId, accountNames: Array.isArray(item.accountNames) ? item.accountNames : [], connectedAt: item.connectedAt || null, syncedAt: item.syncedAt || null })),
+              message: connected ? `${items.length} conexão(ões) MeuPluggy vinculada(s). Você pode adicionar outras.` : 'Vincule um ou mais ItemIds MeuPluggy desta conta administradora.'
             });
             return;
           }
@@ -2060,8 +2118,8 @@ async function main() {
               const connectorId = Number(item.connector?.id || item.connectorId);
               const connectorName = openFinanceConnectorName(item);
               if (connectorId !== 200 && !isMeuPluggyConnector(connectorName)) { send(res, 400, { error: 'Selecione o conector MeuPluggy para concluir a conexão.' }); return; }
-              await writeBradescoItem(session.userId, { itemId, connectorId: 200, connectorName: 'MeuPluggy', connectedAt: new Date().toISOString() });
-              send(res, 200, { ok: true, connectorName: 'MeuPluggy' });
+              const linkedItems = await upsertMeuPluggyItem(session.userId, { itemId, connectorId: 200, connectorName: 'MeuPluggy', connectedAt: new Date().toISOString() });
+              send(res, 200, { ok: true, connectorName: 'MeuPluggy', connectedCount: linkedItems.length });
             } catch (error) { send(res, error.status || 502, { error: error.message || 'Não foi possível confirmar a conexão MeuPluggy.' }); }
             return;
           }
@@ -2072,7 +2130,9 @@ async function main() {
                 updatedAt: result.syncedAt,
                 institutionName: 'MeuPluggy',
                 accounts: result.accounts,
-                transactions: result.transactions
+                transactions: result.transactions,
+                itemCount: result.itemCount,
+                failedItems: result.failedItems
               });
             } catch (error) { send(res, error.status || 502, { error: error.message || 'Não foi possível sincronizar MeuPluggy.' }); }
             return;
