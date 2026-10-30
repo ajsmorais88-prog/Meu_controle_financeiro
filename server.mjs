@@ -1462,7 +1462,7 @@ async function main() {
       if (req.method === 'GET' && pathname === '/api/session') {
         const session = await currentSession(req);
         const user = session ? await getUser(session.userId) : null;
-        send(res, 200, { authenticated: Boolean(session), userId: session?.userId || null, username: session?.username || null, email: user?.email || null, emailVerified: Boolean(user?.emailVerifiedAt), setupRequired: await getUserCount() === 0 });
+        send(res, 200, { authenticated: Boolean(session), userId: session?.userId || null, username: session?.username || null, email: user?.email || null, emailVerified: Boolean(user?.emailVerifiedAt), setupRequired: await getUserCount() === 0, isAdmin: Boolean(user && isAdminUser(user)) });
         return;
       }
       if (req.method === 'POST' && pathname === '/api/setup') {
