@@ -932,6 +932,24 @@ function htmlResponse(res, html, nonce) {
   res.end(html);
 }
 
+
+function isAdminUser(user) {
+  const configuredEmail = normalizeEmail(process.env.ADMIN_EMAIL);
+  return Boolean(configuredEmail && user && normalizeEmail(user.email) === configuredEmail);
+}
+
+function adminUsersPage(nonce) {
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Administração · Minhas Finanças</title><style>
+  :root{font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;color:#12352f;background:#f1f6f4}*{box-sizing:border-box}body{margin:0;padding:32px 18px}.wrap{max-width:1120px;margin:auto}.top{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:24px}.brand{font-weight:750;font-size:20px}.brand span{color:#168475}.tag{font-size:11px;letter-spacing:.14em;color:#55756e;font-weight:700}.panel{background:#fff;border:1px solid #dce8e3;border-radius:18px;padding:24px;box-shadow:0 12px 36px #173e3010}.heading{display:flex;justify-content:space-between;align-items:end;gap:18px;margin-bottom:20px}.heading h1{margin:6px 0;font-size:28px}.muted{color:#668079;font-size:14px}.toolbar{display:flex;gap:10px;align-items:center;margin-bottom:16px}input,button{font:inherit;border:1px solid #d5e2dd;border-radius:10px;padding:11px 13px;background:#fff;color:#153a34}input{min-width:240px;flex:1}button{cursor:pointer;font-weight:650}button:hover{background:#eff7f4}.count{font-size:13px;color:#547168;margin-left:auto} .table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;min-width:760px}th,td{text-align:left;padding:13px 12px;border-bottom:1px solid #edf2ef;font-size:14px}th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#678078}td:first-child{font-weight:650}.pill{display:inline-block;padding:5px 9px;border-radius:999px;font-size:12px;font-weight:650;background:#edf3f0;color:#58726b}.yes{background:#e3f5eb;color:#167048}.no{background:#fff0e7;color:#9a4f20}.error{padding:18px;background:#fff5f3;color:#a4382e;border-radius:12px}.back{color:#176a5a;text-decoration:none;font-size:14px;font-weight:650}@media(max-width:600px){body{padding:16px 10px}.panel{padding:16px}.heading{display:block}.toolbar{flex-wrap:wrap}input{min-width:100%}.count{margin-left:0}}
+  </style></head><body><main class="wrap"><header class="top"><div class="brand">▰ Minhas <span>Finanças</span></div><a class="back" href="/">Voltar ao aplicativo</a></header><section class="panel"><div class="heading"><div><div class="tag">ÁREA ADMINISTRATIVA</div><h1>Usuários cadastrados</h1><div class="muted">Dados de cadastro e assinatura. Informações financeiras e credenciais não são exibidas.</div></div></div><div class="toolbar"><input id="search" type="search" placeholder="Buscar por nome ou e-mail" aria-label="Buscar usuários"><span class="count" id="count">Carregando…</span></div><div id="message" class="muted" role="status"></div><div class="table-wrap"><table><thead><tr><th>Usuário</th><th>E-mail</th><th>Cadastro</th><th>E-mail confirmado</th><th>Plano</th><th>Status</th><th>Válido até</th></tr></thead><tbody id="rows"></tbody></table></div></section></main><script nonce="${nonce}">
+  const rows=document.querySelector('#rows'),search=document.querySelector('#search'),count=document.querySelector('#count'),message=document.querySelector('#message');let users=[];
+  const date=v=>v?new Intl.DateTimeFormat('pt-BR',{dateStyle:'short'}).format(new Date(v)):'—';
+  function render(){const q=search.value.trim().toLocaleLowerCase('pt-BR');const shown=users.filter(u=>[u.username,u.email].join(' ').toLocaleLowerCase('pt-BR').includes(q));rows.replaceChildren(...shown.map(u=>{const tr=document.createElement('tr');const vals=[u.username,u.email||'—',date(u.createdAt),u.emailVerifiedAt?'Confirmado':'Pendente',u.plan==='annual'?'Anual':u.plan==='monthly'?'Mensal':'—',u.subscriptionStatus||'Sem assinatura',date(u.currentPeriodEnd)];vals.forEach((v,i)=>{const td=document.createElement('td');td.textContent=v;if(i===3||i===5){const badge=document.createElement('span');badge.className='pill '+((v==='Confirmado'||v==='active'||v==='canceled')?'yes':'no');badge.textContent=v;td.replaceChildren(badge)}tr.append(td)});return tr}));count.textContent=shown.length+' de '+users.length+' usuários'}
+  search.addEventListener('input',render);
+  fetch('/api/admin/users',{credentials:'same-origin',headers:{Accept:'application/json'}}).then(async r=>{const data=await r.json().catch(()=>({}));if(!r.ok)throw new Error(data.error||'Não foi possível carregar a lista.');users=data.users||[];render()}).catch(e=>{message.textContent=e.message;message.className='error';count.textContent=''});
+  </script></body></html>`;
+}
+
 function getCookie(req, name) {
   const parts = (req.headers.cookie || '').split(';');
   for (const part of parts) {
@@ -1424,6 +1442,20 @@ async function main() {
         if (hasBody && !String(req.headers['content-type'] || '').toLowerCase().startsWith('application/json')) {
           send(res, 415, { error: 'Envie o conteúdo usando application/json.' }); return;
         }
+      }
+      if (req.method === 'GET' && pathname === '/api/admin/users') {
+        const adminSession = await currentSession(req);
+        if (!adminSession) { send(res, 401, { error: 'Faça login para continuar.' }); return; }
+        const admin = await getUser(adminSession.userId);
+        if (!admin?.emailVerifiedAt) { send(res, 403, { error: 'Confirme seu e-mail para acessar a área administrativa.' }); return; }
+        if (!isAdminUser(admin)) { send(res, 404, { error: 'Rota não encontrada.' }); return; }
+        const users = await dbAll(`SELECT u.username, u.email, u.created_at AS "createdAt",
+          u.email_verified_at AS "emailVerifiedAt", s.plan, s.status AS "subscriptionStatus",
+          s.current_period_end AS "currentPeriodEnd"
+          FROM users u LEFT JOIN user_subscriptions s ON s.user_id = u.id
+          ORDER BY u.created_at DESC LIMIT 2000`);
+        send(res, 200, { users });
+        return;
       }
       if (req.method === 'GET' && pathname === '/api/session') {
         const session = await currentSession(req);
@@ -1956,7 +1988,16 @@ async function main() {
       if (req.method === 'GET' && pathname === '/' && session) {
         const account = await getUser(session.userId);
         if (!account?.emailVerifiedAt) { res.writeHead(302, { Location: '/account-email' }); res.end(); return; }
-        if (!await subscriptionIsActive(session.userId)) { res.writeHead(302, { Location: '/checkout-pending' }); res.end(); return; }
+        if (!isAdminUser(account) && !await subscriptionIsActive(session.userId)) { res.writeHead(302, { Location: '/checkout-pending' }); res.end(); return; }
+      }
+      if (req.method === 'GET' && pathname === '/admin') {
+        if (!session) { res.writeHead(302, { Location: '/login' }); res.end(); return; }
+        const adminAccount = await getUser(session.userId);
+        if (!adminAccount?.emailVerifiedAt) { res.writeHead(302, { Location: '/account-email' }); res.end(); return; }
+        if (!isAdminUser(adminAccount)) { send(res, 404, { error: 'Rota não encontrada.' }); return; }
+        const nonce = randomBytes(18).toString('base64');
+        htmlResponse(res, adminUsersPage(nonce), nonce);
+        return;
       }
       if (req.method === 'GET' && pathname === '/login') {
         if (session) { res.writeHead(302, { Location: '/' }); res.end(); return; }
