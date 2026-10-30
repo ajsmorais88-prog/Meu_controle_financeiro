@@ -853,6 +853,106 @@ async function listPluggyTransactions(accountId) {
   return all;
 }
 
+
+const MYPLUGGY_TRANSACTIONS_KEY = 'meu-controle-financeiro-transactions-v1';
+const MYPLUGGY_BANK_ACCOUNTS_KEY = 'meu-controle-financeiro-bank-accounts-v1';
+const MYPLUGGY_SELECTED_ACCOUNT_KEY = 'meu-controle-financeiro-bank-selected-account-v1';
+
+async function storedArray(userId, key) {
+  const raw = await getUserData(userId, key, '[]');
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try { const parsed = JSON.parse(raw); return Array.isArray(parsed) ? parsed : []; } catch {}
+  }
+  return [];
+}
+
+async function syncMeuPluggyIntoUserData(userId) {
+  const savedItem = await readBradescoItem(userId);
+  if (!savedItem?.itemId || !isMeuPluggyConnector(savedItem.connectorName)) {
+    const error = new Error('Conecte MeuPluggy nesta conta de administrador antes de sincronizar.');
+    error.status = 409;
+    throw error;
+  }
+  const item = await pluggyRequest(`/items/${encodeURIComponent(savedItem.itemId)}`);
+  if (!isMeuPluggyConnector(openFinanceConnectorName(item)) && Number(item.connector?.id || item.connectorId) !== 200) {
+    const error = new Error('A conexão salva não é do MeuPluggy. Reconecte a conta.');
+    error.status = 409;
+    throw error;
+  }
+  const accountData = await pluggyRequest(`/accounts?itemId=${encodeURIComponent(savedItem.itemId)}`);
+  const accounts = Array.isArray(accountData.results) ? accountData.results : Array.isArray(accountData) ? accountData : [];
+  const transactionsByAccount = await Promise.all(accounts.map(async account => ({ account, transactions: await listPluggyTransactions(account.id) })));
+  const transactions = transactionsByAccount.flatMap(({ account, transactions: entries }) => entries.map(entry => {
+    const amount = Math.abs(Number(entry.amount));
+    const date = String(entry.date || entry.createdAt || '').slice(0, 10);
+    if (!Number.isFinite(amount) || amount <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+    const rawType = String(entry.type || '').toUpperCase();
+    const signedAmount = Number(entry.amount);
+    const type = rawType.includes('CREDIT') || rawType === 'INCOME' ? 'income' : rawType.includes('DEBIT') || rawType === 'EXPENSE' ? 'expense' : signedAmount < 0 ? 'expense' : 'income';
+    const category = typeof entry.category === 'string' ? entry.category : entry.category?.description || entry.category?.name || entry.categoryDescription || entry.categoryName || 'Open Finance';
+    return {
+      id: `mypluggy-${account.id}-${entry.id}`,
+      externalId: `mypluggy:${account.id}:${entry.id}`,
+      accountId: String(account.id),
+      description: String(entry.description || entry.descriptionRaw || 'Transação MeuPluggy').slice(0, 120),
+      type,
+      category: String(category).slice(0, 60),
+      amount,
+      date,
+      paymentMethod: 'openfinance',
+      accountName: String(account.name || account.type || 'Conta MeuPluggy').slice(0, 80),
+      bankAccountId: `pluggy-${account.id}`
+    };
+  }).filter(Boolean));
+  const syncedAt = new Date().toISOString();
+  await writeBradescoItem(userId, { ...savedItem, connectorName: 'MeuPluggy', syncedAt });
+
+  const existingTransactions = await storedArray(userId, MYPLUGGY_TRANSACTIONS_KEY);
+  const transactionIndex = new Map(existingTransactions.map((transaction, index) => [String(transaction.externalId || ''), index]).filter(([id]) => id));
+  let added = 0, updated = 0;
+  for (const transaction of transactions) {
+    const index = transactionIndex.get(transaction.externalId);
+    if (index !== undefined) {
+      const previous = existingTransactions[index];
+      existingTransactions[index] = { ...previous, ...transaction, id: previous.id || transaction.id, createdAt: previous.createdAt || Date.now() };
+      updated++;
+    } else {
+      existingTransactions.push({ ...transaction, createdAt: Date.now() });
+      transactionIndex.set(transaction.externalId, existingTransactions.length - 1);
+      added++;
+    }
+  }
+  await setUserData(userId, MYPLUGGY_TRANSACTIONS_KEY, JSON.stringify(existingTransactions));
+
+  const bankAccounts = await storedArray(userId, MYPLUGGY_BANK_ACCOUNTS_KEY);
+  const importedAccounts = accounts.map(account => ({
+    id: `pluggy-${account.id}`,
+    name: `${String(account.name || account.type || 'Conta').slice(0, 80)} · MeuPluggy`,
+    source: 'MeuPluggy',
+    pluggyAccountId: String(account.id),
+    balance: Number(account.balance) || 0,
+    currencyCode: String(account.currencyCode || 'BRL')
+  }));
+  for (const incoming of importedAccounts) {
+    const index = bankAccounts.findIndex(account => String(account.id) === incoming.id);
+    if (index < 0) bankAccounts.push(incoming);
+    else bankAccounts[index] = { ...bankAccounts[index], ...incoming };
+  }
+  await setUserData(userId, MYPLUGGY_BANK_ACCOUNTS_KEY, JSON.stringify(bankAccounts));
+  if (importedAccounts.length) {
+    const selectedAccountId = await getUserData(userId, MYPLUGGY_SELECTED_ACCOUNT_KEY, '');
+    if (!selectedAccountId || selectedAccountId === 'main' || !bankAccounts.some(account => String(account.id) === String(selectedAccountId))) {
+      await setUserData(userId, MYPLUGGY_SELECTED_ACCOUNT_KEY, importedAccounts[0].id);
+    }
+  }
+  return {
+    accountCount: importedAccounts.length, added, updated, syncedAt,
+    accounts: accounts.map(account => ({ id: String(account.id), name: String(account.name || account.type || 'Conta'), type: String(account.subtype || account.type || ''), balance: Number(account.balance) || 0, currencyCode: String(account.currencyCode || 'BRL') })),
+    transactions
+  };
+}
+
 async function loadDotEnv() {
   try {
     const content = await readFile(path.join(ROOT, '.env'), 'utf8');
@@ -1468,6 +1568,22 @@ async function main() {
         send(res, 200, { users });
         return;
       }
+      if (req.method === 'GET' && pathname === '/api/cron/mypluggy-sync') {
+        const cronSecret = String(process.env.CRON_SECRET || '');
+        if (!cronSecret || !matchesWebhookSecret(req.headers.authorization, `Bearer ${cronSecret}`)) { send(res, 401, { error: 'Não autorizado.' }); return; }
+        try {
+          const adminEmail = normalizeEmail(process.env.ADMIN_EMAIL);
+          const adminRow = adminEmail ? await dbGet('SELECT id FROM users WHERE lower(email) = ?', adminEmail) : null;
+          const admin = adminRow?.id ? await getUser(adminRow.id) : null;
+          if (!admin?.emailVerifiedAt || !isAdminUser(admin)) { send(res, 404, { error: 'Conta administradora não encontrada.' }); return; }
+          const result = await syncMeuPluggyIntoUserData(admin.id);
+          send(res, 200, { ok: true, accountCount: result.accountCount, added: result.added, updated: result.updated, syncedAt: result.syncedAt });
+        } catch (error) {
+          console.error('[mypluggy-daily-sync]', JSON.stringify({ status: error.status || 500, message: String(error.message || 'Falha na sincronização diária.').slice(0, 180) }));
+          send(res, error.status || 502, { error: error.message || 'Não foi possível atualizar MeuPluggy.' });
+        }
+        return;
+      }
       if (req.method === 'GET' && pathname === '/api/session') {
         const session = await currentSession(req);
         const user = session ? await getUser(session.userId) : null;
@@ -1950,42 +2066,13 @@ async function main() {
             return;
           }
           if (req.method === 'POST' && pathname === '/api/mypluggy/sync') {
-            const savedItem = await readBradescoItem(session.userId);
-            if (!savedItem?.itemId || !isMeuPluggyConnector(savedItem.connectorName)) { send(res, 409, { error: 'Conecte MeuPluggy nesta conta de administrador antes de sincronizar.' }); return; }
             try {
-              const item = await pluggyRequest(`/items/${encodeURIComponent(savedItem.itemId)}`);
-              // MeuPluggy criado pelo Dashboard pode não retornar clientUserId. A autorização desta rota é admin-only e o conector é validado abaixo.
-              if (!isMeuPluggyConnector(openFinanceConnectorName(item)) && Number(item.connector?.id || item.connectorId) !== 200) { send(res, 409, { error: 'A conexão salva não é do MeuPluggy. Reconecte a conta.' }); return; }
-              const accountData = await pluggyRequest(`/accounts?itemId=${encodeURIComponent(savedItem.itemId)}`);
-              const accounts = Array.isArray(accountData.results) ? accountData.results : Array.isArray(accountData) ? accountData : [];
-              const transactionsByAccount = await Promise.all(accounts.map(async account => ({ account, transactions: await listPluggyTransactions(account.id) })));
-              const transactions = transactionsByAccount.flatMap(({ account, transactions: entries }) => entries.map(entry => {
-                const amount = Math.abs(Number(entry.amount));
-                const date = String(entry.date || entry.createdAt || '').slice(0, 10);
-                if (!Number.isFinite(amount) || amount <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
-                const rawType = String(entry.type || '').toUpperCase();
-                const signedAmount = Number(entry.amount);
-                const type = rawType.includes('CREDIT') || rawType === 'INCOME' ? 'income' : rawType.includes('DEBIT') || rawType === 'EXPENSE' ? 'expense' : signedAmount < 0 ? 'expense' : 'income';
-                return {
-                  id: `mypluggy-${account.id}-${entry.id}`,
-                  externalId: `mypluggy:${account.id}:${entry.id}`,
-                  accountId: String(account.id),
-                  description: String(entry.description || entry.descriptionRaw || 'Transação MeuPluggy').slice(0, 120),
-                  type,
-                  category: String(typeof entry.category === 'string' ? entry.category : entry.category?.description || entry.category?.name || entry.categoryDescription || entry.categoryName || 'Open Finance').slice(0, 60),
-                  amount,
-                  date,
-                  paymentMethod: 'openfinance',
-                  accountName: String(account.name || account.type || 'Conta MeuPluggy').slice(0, 80)
-                };
-              }).filter(Boolean));
-              const syncedAt = new Date().toISOString();
-              await writeBradescoItem(session.userId, { ...savedItem, connectorName: 'MeuPluggy', syncedAt });
+              const result = await syncMeuPluggyIntoUserData(session.userId);
               send(res, 200, {
-                updatedAt: syncedAt,
+                updatedAt: result.syncedAt,
                 institutionName: 'MeuPluggy',
-                accounts: accounts.map(account => ({ id: String(account.id), name: String(account.name || account.type || 'Conta'), type: String(account.subtype || account.type || ''), balance: Number(account.balance) || 0, currencyCode: String(account.currencyCode || 'BRL') })),
-                transactions
+                accounts: result.accounts,
+                transactions: result.transactions
               });
             } catch (error) { send(res, error.status || 502, { error: error.message || 'Não foi possível sincronizar MeuPluggy.' }); }
             return;
