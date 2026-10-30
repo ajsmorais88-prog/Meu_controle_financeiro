@@ -635,35 +635,17 @@
     }catch(error){status.textContent=error.message;}
   }
   async function connectMyPluggy(){
-    const button=$('#connectMyPluggy'),status=$('#myPluggyStatus');
-    button.disabled=true;status.textContent='Preparando conexão pessoal segura…';
+    const button=$('#connectMyPluggy'),status=$('#myPluggyStatus'),itemId=$('#myPluggyItemId').value.trim();
+    if(!itemId){status.textContent='Informe o itemId da conexão MeuPluggy criada no painel Pluggy.';$('#myPluggyItemId').focus();return;}
+    button.disabled=true;status.textContent='Validando a conexão pessoal na Pluggy…';
     try{
-      const tokenResponse=await fetch('/api/mypluggy/connect-token',{method:'POST',cache:'no-store'}),token=await tokenResponse.json();
-      if(tokenResponse.status===401){location.reload();return;}
-      if(!tokenResponse.ok)throw new Error(token.error||'Não foi possível preparar a conexão MeuPluggy.');
-      if(typeof window.PluggyConnect!=='function')throw new Error('O componente Pluggy Connect não carregou.');
-      const widget=new window.PluggyConnect({
-        connectToken:token.accessToken,
-        includeSandbox:false,
-        connectorTypes:['PERSONAL_BANK'],
-        connectorIds:[200],
-        selectedConnectorId:200,
-        countries:['BR'],
-        onSuccess:async result=>{
-          const itemId=result?.item?.id||result?.id;
-          if(!itemId){status.textContent='A Pluggy não retornou o identificador da conexão.';return;}
-          try{
-            const response=await fetch('/api/mypluggy/item',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({itemId})});
-            const data=await response.json();
-            if(!response.ok)throw new Error(data.error||'Não foi possível salvar a conexão.');
-            status.textContent='MeuPluggy conectado. Importando contas e transações…';
-            await loadMyPluggyStatus();
-            await syncMyPluggy();
-          }catch(error){status.textContent=error.message;showToast(error.message);}
-        },
-        onError:error=>{const message=error?.message||'A Pluggy não conseguiu concluir a autorização. Confirme que MeuPluggy está habilitado na aplicação Pluggy e tente novamente.';status.textContent=message;showToast(message);}
-      });
-      widget.init();
+      const response=await fetch('/api/mypluggy/item',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({itemId}),cache:'no-store'});
+      const data=await response.json().catch(()=>({}));
+      if(response.status===401){location.reload();return;}
+      if(!response.ok)throw new Error(data.error||'Não foi possível vincular a conexão MeuPluggy.');
+      status.textContent='MeuPluggy conectado. Importando contas e transações…';
+      await loadMyPluggyStatus();
+      await syncMyPluggy();
     }catch(error){status.textContent=error.message;showToast(error.message);}
     finally{button.disabled=false;}
   }
