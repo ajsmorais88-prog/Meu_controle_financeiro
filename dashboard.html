@@ -112,6 +112,13 @@
 </article>
         
         
+        <article id="myPluggyAdminPanel" class="panel connection-panel mypluggy-admin-panel" hidden>
+          <div class="connection-heading"><span class="connection-logo brokerage-logo">↗</span><div><p class="eyebrow">OPEN FINANCE · ADMIN</p><h2>MeuPluggy</h2></div></div>
+          <p class="panel-copy">Conexão pessoal disponível somente nesta conta administradora. Autorize o acesso pelo MeuPluggy; o painel não solicita sua senha bancária.</p>
+          <div class="bradesco-actions"><button class="button button-dark" id="connectMyPluggy" type="button">Conectar MeuPluggy</button><button class="button button-outline" id="syncMyPluggy" type="button" hidden>Sincronizar conta</button></div>
+          <p class="connection-status" id="myPluggyStatus" aria-live="polite">Verificando conexão…</p>
+          <div id="myPluggyAccounts" class="brokerage-position-list" hidden></div>
+        </article>
         <article class="panel connection-panel brokerage-panel"><div class="connection-heading"><span class="connection-logo brokerage-logo">↗</span><div><p class="eyebrow">CARTEIRA DE INVESTIMENTOS</p><h2>Corretoras disponíveis</h2></div><button type="button" class="row-action" id="reloadBrokerageConnectors">Atualizar lista</button></div><p class="panel-copy">Escolha uma corretora e acesse o Pluggy Connect para fazer login com segurança. O acesso real depende da habilitação da sua aplicação Pluggy.</p><label class="brokerage-select-label" for="brokerageConnectorSelect">Corretora<select id="brokerageConnectorSelect"><option value="">Carregando corretoras…</option></select></label><div class="bradesco-actions"><button type="button" class="button button-dark" id="connectBrokerage" disabled>Acessar Pluggy Connect</button></div><p class="connection-status" id="brokerageConnectorStatus" aria-live="polite">Carregando corretoras de investimento…</p><div id="brokerageConnectedList" class="brokerage-connected-list"></div></article>
       </div>
     </section>
