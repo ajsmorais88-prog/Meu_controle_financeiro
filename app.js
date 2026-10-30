@@ -629,9 +629,17 @@
       if(response.status===401){location.reload();return;}
       if(!response.ok)throw new Error(data.error||'Não foi possível verificar MeuPluggy.');
       status.textContent=data.message||'';
-      $('#connectMyPluggy').textContent=data.connected?'Reconectar MeuPluggy':'Conectar MeuPluggy';
+      $('#connectMyPluggy').textContent=data.connected?'Adicionar outro ItemId':'Vincular ItemId';
       $('#syncMyPluggy').hidden=!data.connected;
       $('#syncMyPluggy').disabled=false;
+      const linkedItems=$('#myPluggyLinkedItems');linkedItems.replaceChildren();
+      for(const item of data.items||[]){
+        const row=document.createElement('div');row.className='brokerage-position-row';
+        const label=document.createElement('span');label.textContent=(item.accountNames||[]).join(', ')||'Conexão MeuPluggy';
+        const id=document.createElement('strong');id.textContent=item.itemId;
+        row.append(label,id);linkedItems.append(row);
+      }
+      linkedItems.hidden=!(data.items||[]).length;
     }catch(error){status.textContent=error.message;}
   }
   async function connectMyPluggy(){
@@ -643,7 +651,8 @@
       const data=await response.json().catch(()=>({}));
       if(response.status===401){location.reload();return;}
       if(!response.ok)throw new Error(data.error||'Não foi possível vincular a conexão MeuPluggy.');
-      status.textContent='MeuPluggy conectado. Importando contas e transações…';
+      $('#myPluggyItemId').value='';
+      status.textContent='ItemId MeuPluggy vinculado. Importando as conexões…';
       await loadMyPluggyStatus();
       await syncMyPluggy();
     }catch(error){status.textContent=error.message;showToast(error.message);}
@@ -714,7 +723,9 @@
         accountsList.append(accountBlock);
       }
       accountsList.hidden=!importedAccounts.length;
-      status.textContent=`Sincronização concluída · ${importedAccounts.length} conta(s), ${added} nova(s) e ${updated} atualizada(s).`;
+      await loadMyPluggyStatus();
+      const failedCount=Array.isArray(data.failedItems)?data.failedItems.length:0;
+      status.textContent=`Sincronização concluída · ${data.itemCount||1} conexão(ões), ${importedAccounts.length} conta(s), ${added} nova(s) e ${updated} atualizada(s)${failedCount?` · ${failedCount} conexão(ões) com erro`:''}.`;
       showToast('MeuPluggy sincronizado com as transações bancárias.');
     }catch(error){status.textContent=error.message;showToast(error.message);}
     finally{button.disabled=false;}
