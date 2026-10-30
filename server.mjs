@@ -1018,6 +1018,8 @@ function publicPage(nonce) {
 
 function paymentReturnPage(nonce) {
   return '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>Confirmando pagamento · Minhas Finanças</title><style nonce="' + nonce + '">*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f5f8f6;color:#18332d;font:15px Arial,sans-serif}.box{width:min(520px,calc(100% - 32px));padding:32px;border:1px solid #e1e9e3;border-radius:18px;background:#fff;box-shadow:0 18px 55px #18332d12}.brand{font-size:18px;font-weight:700;margin-bottom:28px}.eyebrow{font-size:10px;letter-spacing:1.5px;color:#56816c;font-weight:700}h1{font-size:27px;margin:10px 0}.copy{color:#65746c;font-size:13px;line-height:1.7}.button{display:block;text-align:center;padding:14px 18px;margin-top:18px;border-radius:9px;background:#215a47;color:#fff;text-decoration:none;font-size:13px;font-weight:700}.note{padding:13px;border-radius:10px;background:#f0f6f1;color:#4e6d5a;font-size:12px;line-height:1.6}</style></head><body><main class="box"><div class="brand">Minhas Finanças</div><p class="eyebrow">CONFIRMAÇÃO DO MERCADO PAGO</p><h1>Pagamento em confirmação</h1><p class="copy">O cadastro só será criado depois que o Mercado Pago confirmar a aprovação do pagamento. Esse processo pode levar alguns instantes.</p><p class="note">Após a aprovação, enviaremos um código de verificação ao e-mail informado no cadastro. Depois, você poderá entrar e confirmar o endereço para liberar o painel.</p><a class="button" href="/login">Ir para o login</a><a class="button" href="/">Voltar à página inicial</a></main></body></html>';
+}
+
 function accessPage(mode, nonce) {
   const setupRequired = mode === 'register';
   const forgot = mode === 'forgot';
@@ -1351,7 +1353,6 @@ async function signedBinanceAccount(apiKey, apiSecret) {
   return { configured: true, balances: balancesWithCost, updatedAt: new Date().toISOString() };
 }
 
-}
 async function serveStatic(req, res, pathname) {
   const allowed = new Map([['/', 'dashboard.html'], ['/index.html', 'dashboard.html'], ['/favicon.svg', 'favicon.svg'], ['/app.js', 'app.js'], ['/styles.css', 'styles.css'], ['/vendor/pdfjs/pdf.min.mjs', 'vendor/pdfjs/pdf.min.mjs'], ['/vendor/pdfjs/pdf.worker.min.mjs', 'vendor/pdfjs/pdf.worker.min.mjs']]);
   const filename = allowed.get(pathname);
@@ -2057,11 +2058,6 @@ async function main() {
       await serveStatic(req, res, pathname);
     } catch (error) {
       const status = error instanceof SyntaxError ? 400 : 500;
-      const diagnostic = String(error?.message || '').replace(/[\\r\\n\\t]+/g, ' ')
-        .replace(/[\\w.+-]+@[\\w.-]+\\.[A-Z]{2,}/gi, '[email]')
-        .replace(/\\bAPP_USR-[A-Za-z0-9-]+\\b/g, '[credential]')
-        .slice(0, 180);
-      console.error('[request-failure]', JSON.stringify({ path: pathname, name: String(error?.name || 'Error').slice(0, 60), code: String(error?.code || '').slice(0, 60), message: diagnostic }));
       if (!res.headersSent) send(res, status, { error: status === 400 ? 'Requisição inválida.' : 'Erro interno.' });
       else res.destroy();
     }
