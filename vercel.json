@@ -41,5 +41,11 @@
       "source": "/admin",
       "destination": "/api/home?path=/admin"
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/mypluggy-sync",
+      "schedule": "0 13 * * *"
+    }
   ]
 }
