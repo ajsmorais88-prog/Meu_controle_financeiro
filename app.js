@@ -667,10 +667,10 @@
       }
       if(importedAccounts.length){
         localStorage.setItem(BANK_ACCOUNTS_KEY,JSON.stringify(bankAccounts));
-        if(selectedBankAccountId==='main'||!bankAccounts.some(item=>String(item.id)===String(selectedBankAccountId))){
-          selectedBankAccountId=String(importedAccounts[0].id);
-          localStorage.setItem(BANK_SELECTED_ACCOUNT_KEY,selectedBankAccountId);
-        }
+        selectedBankAccountId=String(importedAccounts[0].id);
+        localStorage.setItem(BANK_SELECTED_ACCOUNT_KEY,selectedBankAccountId);
+        const newestDate=(data.transactions||[]).map(movement=>String(movement.date||'').slice(0,10)).filter(date=>/^\d{4}-\d{2}-\d{2}$/.test(date)).sort().at(-1);
+        if(newestDate)$('#transactionsMonthFilter').value=newestDate.slice(0,7);
       }
       let added=0,updated=0;
       for(const movement of data.transactions||[]){
