@@ -197,13 +197,13 @@ async function mercadoPagoRequest(apiPath, options = {}) {
   return result;
 }
 
-async function createMercadoPagoCheckout(req, userId, email, plan) {
+async function createMercadoPagoCheckout(req, signupId, email, plan) {
   const selected = paymentPlan(plan);
-  if (!selected) throw Object.assign(new Error('Escolha um plano válido.'), { status: 400 });
+  if (!selected) throw Object.assign(new Error('Escolha o plano mensal ou anual.'), { status: 400 });
   if (!mercadoPagoConfigured()) throw Object.assign(new Error('Cadastro indisponível: configure o token e a assinatura de webhook do Mercado Pago no servidor.'), { status: 503 });
   const origin = publicOriginForRequest(req);
-  const externalReference = 'minhas-financas:' + userId + ':' + plan;
-  const backUrl = origin + '/?pagamento=retorno';
+  const externalReference = 'minhas-financas-signup:' + signupId + ':' + plan;
+  const backUrl = origin + '/payment-return';
   if (plan === 'annual') {
     const preference = await mercadoPagoRequest('/checkout/preferences', {
       method: 'POST',
@@ -226,10 +226,65 @@ async function createMercadoPagoCheckout(req, userId, email, plan) {
       external_reference: externalReference,
       payer_email: email,
       back_url: backUrl,
+      notification_url: origin + '/api/webhooks/mercadopago',
       auto_recurring: { frequency: 1, frequency_type: 'months', transaction_amount: selected.amount, currency_id: 'BRL' }
     }
   });
   return { url: validateMercadoPagoCheckoutUrl(subscription.init_point), providerId: String(subscription.id || ''), externalReference };
+}
+
+async function getPendingSignup(signupId) {
+  return await dbGet('SELECT id, username, email, salt, password_hash AS "passwordHash", plan, status, provider_id AS "providerId", checkout_url AS "checkoutUrl", external_reference AS "externalReference" FROM pending_signups WHERE id = ?', signupId);
+}
+
+async function activatePaidSignup(pending, paymentDetails = {}) {
+  if (!pending) return null;
+  const alreadyActivated = await dbGet('SELECT user_id AS "userId" FROM user_subscriptions WHERE external_reference = ?', pending.externalReference);
+  if (alreadyActivated) {
+    await dbRun('DELETE FROM pending_signups WHERE id = ?', pending.id);
+    return alreadyActivated.userId;
+  }
+
+  let account = await dbGet('SELECT id FROM users WHERE pending_signup_id = ?', pending.id);
+  if (!account) {
+    const collision = await dbGet('SELECT id FROM users WHERE lower(email) = lower(?) OR lower(username) = lower(?) LIMIT 1', pending.email, pending.username);
+    if (collision) {
+      await dbRun("UPDATE pending_signups SET status = 'conflict' WHERE id = ?", pending.id);
+      throw Object.assign(new Error('O pagamento foi aprovado, mas os dados de cadastro já estão associados a outra conta.'), { code: 'SIGNUP_IDENTITY_CONFLICT' });
+    }
+    const userId = randomUUID();
+    try {
+      await dbRun('INSERT INTO users (id, username, email, email_verified_at, pending_signup_id, salt, password_hash, created_at) VALUES (?, ?, ?, NULL, ?, ?, ?, ?)',
+        userId, pending.username, pending.email, pending.id, pending.salt, pending.passwordHash, new Date().toISOString());
+      account = { id: userId };
+    } catch (error) {
+      account = await dbGet('SELECT id FROM users WHERE pending_signup_id = ?', pending.id);
+      if (!account) throw error;
+    }
+  }
+
+  const now = new Date().toISOString();
+  const subscription = await dbGet('SELECT user_id AS "userId" FROM user_subscriptions WHERE external_reference = ?', pending.externalReference);
+  if (!subscription) {
+    try {
+      await dbRun('INSERT INTO user_subscriptions (user_id, plan, status, provider, provider_id, checkout_url, external_reference, current_period_end, last_payment_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        account.id, pending.plan, 'active', 'mercadopago', paymentDetails.providerId || pending.providerId || null, pending.checkoutUrl, pending.externalReference,
+        paymentDetails.currentPeriodEnd || periodEndFromNow(pending.plan), paymentDetails.paymentId || null, now, now);
+    } catch (error) {
+      const concurrent = await dbGet('SELECT user_id AS "userId" FROM user_subscriptions WHERE external_reference = ?', pending.externalReference);
+      if (!concurrent) throw error;
+    }
+  }
+
+  await dbRun('DELETE FROM pending_signups WHERE id = ?', pending.id);
+  try {
+    const code = await createEmailCode(account.id, pending.email, 'verify');
+    await sendMail(pending.email, 'Pagamento aprovado · confirme seu e-mail · Minhas Finanças',
+      'Seu pagamento foi aprovado e sua conta foi criada. Seu código de verificação é ' + code + '. Ele expira em 15 minutos. Acesse Minhas Finanças e informe este código para liberar o painel.');
+  } catch (error) {
+    console.error('[mercadopago-signup-email]', JSON.stringify({ event: 'verification_email_failed', code: error?.code || error?.status || 'delivery_error' }));
+  }
+  return account.id;
 }
 
 async function getUserSubscription(userId) {
@@ -273,53 +328,89 @@ async function processMercadoPagoWebhook(event, eventType, dataId) {
   const accepted = await dbGet('INSERT INTO mercadopago_webhook_events (event_id, received_at) VALUES (?, ?) ON CONFLICT(event_id) DO NOTHING RETURNING event_id', eventKey, new Date().toISOString());
   if (!accepted) return;
   await dbRun('DELETE FROM mercadopago_webhook_events WHERE received_at < ?', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString());
+  try {
+    await processMercadoPagoWebhookEvent(eventType, dataId);
+  } catch (error) {
+    await dbRun('DELETE FROM mercadopago_webhook_events WHERE event_id = ?', eventKey).catch(() => {});
+    throw error;
+  }
+}
+
+async function processMercadoPagoWebhookEvent(eventType, dataId) {
   if (eventType === 'payment') {
     const payment = await mercadoPagoRequest('/v1/payments/' + encodeURIComponent(dataId));
     const externalReference = String(payment.external_reference || '');
-    const match = externalReference.match(/^minhas-financas:([0-9a-f-]{36}):(annual|monthly)$/i);
+    const match = externalReference.match(/^minhas-financas-signup:([0-9a-f-]{36}):(annual|monthly)$/i);
     if (!match) return;
-    const [, userId, plan] = match;
-    const subscription = await getUserSubscription(userId);
+    const [, signupId, plan] = match;
     const selected = paymentPlan(plan);
-    if (!subscription || subscription.externalReference !== externalReference || subscription.plan !== plan || Number(payment.transaction_amount) !== selected.amount || String(payment.currency_id).toUpperCase() !== 'BRL') return;
+    if (Number(payment.transaction_amount) !== selected.amount || String(payment.currency_id).toUpperCase() !== 'BRL') return;
+    const pending = await getPendingSignup(signupId);
     if (plan === 'annual' && payment.status === 'approved') {
-      await dbRun('UPDATE user_subscriptions SET status = ?, current_period_end = ?, last_payment_id = ?, updated_at = ? WHERE user_id = ?',
-        'active', periodEndFromNow('annual'), String(payment.id || dataId), new Date().toISOString(), userId);
+      if (pending && pending.plan === plan && pending.externalReference === externalReference) {
+        await activatePaidSignup(pending, { providerId: pending.providerId, paymentId: String(payment.id || dataId), currentPeriodEnd: periodEndFromNow('annual') });
+        return;
+      }
+      const existing = await dbGet('SELECT user_id AS "userId", last_payment_id AS "lastPaymentId" FROM user_subscriptions WHERE external_reference = ?', externalReference);
+      if (existing && existing.lastPaymentId !== String(payment.id || dataId)) {
+        await dbRun('UPDATE user_subscriptions SET status = ?, current_period_end = ?, last_payment_id = ?, updated_at = ? WHERE user_id = ?',
+          'active', periodEndFromNow('annual'), String(payment.id || dataId), new Date().toISOString(), existing.userId);
+      }
     } else if (plan === 'annual' && ['refunded', 'charged_back', 'cancelled'].includes(String(payment.status))) {
-      await dbRun('UPDATE user_subscriptions SET status = ?, updated_at = ? WHERE user_id = ?', 'refunded', new Date().toISOString(), userId);
+      const existing = await dbGet('SELECT user_id AS "userId" FROM user_subscriptions WHERE external_reference = ?', externalReference);
+      if (existing) await dbRun('UPDATE user_subscriptions SET status = ?, updated_at = ? WHERE user_id = ?', 'refunded', new Date().toISOString(), existing.userId);
+      else if (pending) await dbRun("UPDATE pending_signups SET status = 'cancelled' WHERE id = ?", signupId);
     }
     return;
   }
+
   if (eventType === 'subscription_preapproval') {
     const subscriptionData = await mercadoPagoRequest('/preapproval/' + encodeURIComponent(dataId));
     const externalReference = String(subscriptionData.external_reference || '');
-    const match = externalReference.match(/^minhas-financas:([0-9a-f-]{36}):monthly$/i);
+    const match = externalReference.match(/^minhas-financas-signup:([0-9a-f-]{36}):monthly$/i);
     if (!match) return;
-    const userId = match[1];
-    const subscription = await getUserSubscription(userId);
-    if (!subscription || subscription.plan !== 'monthly' || subscription.externalReference !== externalReference) return;
+    const signupId = match[1];
     const providerStatus = String(subscriptionData.status || '').toLowerCase();
-    if (providerStatus === 'cancelled' || providerStatus === 'canceled') {
-      await dbRun('UPDATE user_subscriptions SET status = ?, provider_id = ?, updated_at = ? WHERE user_id = ?', 'canceled', String(subscriptionData.id || dataId), new Date().toISOString(), userId);
+    const pending = await getPendingSignup(signupId);
+    if (pending && pending.plan === 'monthly' && pending.externalReference === externalReference) {
+      await dbRun('UPDATE pending_signups SET provider_id = ?, status = ? WHERE id = ?',
+        String(subscriptionData.id || dataId), ['cancelled', 'canceled'].includes(providerStatus) ? 'cancelled' : pending.status, signupId);
+      return;
+    }
+    const existing = await dbGet('SELECT user_id AS "userId" FROM user_subscriptions WHERE external_reference = ?', externalReference);
+    if (!existing) return;
+    if (['cancelled', 'canceled'].includes(providerStatus)) {
+      await dbRun('UPDATE user_subscriptions SET status = ?, provider_id = ?, updated_at = ? WHERE user_id = ?', 'canceled', String(subscriptionData.id || dataId), new Date().toISOString(), existing.userId);
     } else {
-      await dbRun('UPDATE user_subscriptions SET provider_id = ?, updated_at = ? WHERE user_id = ?', String(subscriptionData.id || dataId), new Date().toISOString(), userId);
+      await dbRun('UPDATE user_subscriptions SET provider_id = ?, updated_at = ? WHERE user_id = ?', String(subscriptionData.id || dataId), new Date().toISOString(), existing.userId);
     }
     return;
   }
+
   if (eventType === 'subscription_authorized_payment') {
     const invoice = await mercadoPagoRequest('/authorized_payments/' + encodeURIComponent(dataId));
     const payment = invoice.payment || {};
     const subscriptionId = String(invoice.preapproval_id || '');
     const externalReference = String(invoice.external_reference || '');
-    let subscription = subscriptionId ? await dbGet('SELECT user_id AS "userId", plan, external_reference AS "externalReference" FROM user_subscriptions WHERE provider_id = ?', subscriptionId) : null;
-    if (!subscription && externalReference) subscription = await dbGet('SELECT user_id AS "userId", plan, external_reference AS "externalReference" FROM user_subscriptions WHERE external_reference = ?', externalReference);
-    if (!subscription || subscription.plan !== 'monthly' || Number(invoice.transaction_amount) !== 25 || String(invoice.currency_id).toUpperCase() !== 'BRL') return;
-    if (payment.status === 'approved') {
-      await dbRun('UPDATE user_subscriptions SET status = ?, provider_id = COALESCE(?, provider_id), current_period_end = ?, last_payment_id = ?, updated_at = ? WHERE user_id = ?',
-        'active', subscriptionId || null, periodEndFromNow('monthly'), String(payment.id || dataId), new Date().toISOString(), subscription.userId);
+    if (Number(invoice.transaction_amount) !== paymentPlan('monthly').amount || String(invoice.currency_id).toUpperCase() !== 'BRL') return;
+    if (payment.status !== 'approved') return;
+    const match = externalReference.match(/^minhas-financas-signup:([0-9a-f-]{36}):monthly$/i);
+    if (!match) return;
+    const pending = await getPendingSignup(match[1]);
+    if (pending && pending.plan === 'monthly' && pending.externalReference === externalReference) {
+      await activatePaidSignup(pending, { providerId: subscriptionId || pending.providerId, paymentId: String(payment.id || dataId), currentPeriodEnd: periodEndFromNow('monthly') });
+      return;
     }
+    const existing = subscriptionId
+      ? await dbGet('SELECT user_id AS "userId", plan, external_reference AS "externalReference", last_payment_id AS "lastPaymentId" FROM user_subscriptions WHERE provider_id = ?', subscriptionId)
+      : null;
+    const subscription = existing || await dbGet('SELECT user_id AS "userId", plan, external_reference AS "externalReference", last_payment_id AS "lastPaymentId" FROM user_subscriptions WHERE external_reference = ?', externalReference);
+    if (!subscription || subscription.plan !== 'monthly' || subscription.externalReference !== externalReference || subscription.lastPaymentId === String(payment.id || dataId)) return;
+    await dbRun('UPDATE user_subscriptions SET status = ?, provider_id = COALESCE(?, provider_id), current_period_end = ?, last_payment_id = ?, updated_at = ? WHERE user_id = ?',
+      'active', subscriptionId || null, periodEndFromNow('monthly'), String(payment.id || dataId), new Date().toISOString(), subscription.userId);
   }
 }
+
 
 function subscriptionPage(nonce, subscription) {
   const selected = paymentPlan(subscription?.plan);
@@ -461,6 +552,7 @@ async function initializeDatabase() {
       username TEXT NOT NULL${usernameConstraint},
       email TEXT,
       email_verified_at TEXT,
+      pending_signup_id TEXT,
       salt TEXT NOT NULL,
       password_hash TEXT NOT NULL,
       recovery_salt TEXT,
@@ -479,6 +571,19 @@ async function initializeDatabase() {
       last_payment_id TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS pending_signups (
+      id TEXT PRIMARY KEY,
+      username TEXT NOT NULL,
+      email TEXT NOT NULL,
+      salt TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      plan TEXT NOT NULL,
+      status TEXT NOT NULL,
+      provider_id TEXT,
+      checkout_url TEXT NOT NULL,
+      external_reference TEXT NOT NULL,
+      created_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS mercadopago_webhook_events (
       event_id TEXT PRIMARY KEY,
@@ -535,13 +640,16 @@ async function initializeDatabase() {
       created_at TEXT NOT NULL
     );
   `);
-  for (const column of ['email TEXT', 'email_verified_at TEXT']) {
+  for (const column of ['email TEXT', 'email_verified_at TEXT', 'pending_signup_id TEXT']) {
     try { await dbExec(`ALTER TABLE users ADD COLUMN ${column}`); } catch (error) {
       if (!/already exists|duplicate column/i.test(String(error.message))) throw error;
     }
   }
   await dbExec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_lower ON users (lower(email)) WHERE email IS NOT NULL;');
   if (databaseUrl) await dbExec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_lower ON users (lower(username));');
+  await dbExec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_pending_signup ON users (pending_signup_id) WHERE pending_signup_id IS NOT NULL;');
+  await dbExec("CREATE UNIQUE INDEX IF NOT EXISTS idx_pending_signups_email_active ON pending_signups (lower(email)) WHERE status = 'pending';");
+  await dbExec("CREATE UNIQUE INDEX IF NOT EXISTS idx_pending_signups_username_active ON pending_signups (lower(username)) WHERE status = 'pending';");
   await migrateUserDataEncryption();
 
   const legacyAuth = await readLegacyJson(AUTH_FILE);
@@ -890,16 +998,18 @@ function publicPage(nonce) {
   </style></head><body><header class="top wrap"><div class="brand"><span class="mark"><svg viewBox="0 0 40 40" aria-hidden="true"><path d="M8 28.5 16.2 20l5.1 5.2L32 13.5M25.8 13.5H32v6.2" fill="none" stroke="currentColor" stroke-width="3.3" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>Minhas Finanças</span></div><nav class="links"><a class="button secondary" href="/register">Criar conta</a><a class="button primary" href="/login">Acessar minha conta</a></nav></header><main class="wrap"><section class="hero"><div><p class="eyebrow">MAIS CLAREZA PARA ESCOLHER</p><h1>Seu dinheiro,<br><em>no rumo dos seus planos.</em></h1><p class="copy">Faça a gestão das suas finanças pessoais em um só lugar. Conecte contas bancárias e instituições de investimento disponíveis pelo Open Finance, organize cartões e despesas e acompanhe sua carteira cripto da Binance.</p><div class="hero-actions"><a class="button primary" href="/login">Acessar minha conta</a><a class="button" href="/register">Ainda não tenho conta</a></div></div><div class="preview" aria-label="Ilustração de um painel financeiro"><div class="preview-top"><span>Visão geral</span><span>Este mês</span></div><div class="balance">Seu planejamento</div><div class="bars"><i class="bar"></i><i class="bar"></i><i class="bar"></i><i class="bar"></i><i class="bar"></i><i class="bar"></i></div><div class="labels"><span>Sem 1</span><span>Sem 2</span><span>Sem 3</span><span>Sem 4</span><span>Sem 5</span><span>Mês</span></div></div></section><section class="features"><article class="feature"><b>Open Finance</b><span>Centralize transações bancárias de instituições disponíveis na conexão Open Finance.</span></article><article class="feature"><b>Investimentos</b><span>Acompanhe aportes, resgates e a distribuição da sua carteira.</span></article><article class="feature"><b>Criptoativos</b><span>Sincronize sua carteira Binance e acompanhe saldos e valores atuais.</span></article><article class="feature"><b>Planejamento pessoal</b><span>Organize cartões, custos fixos, entradas e saídas e compare o planejado com o realizado.</span></article></section><section class="plans-section" id="planos"><div class="section-heading"><p class="eyebrow">PLANOS E PREÇOS</p><h2>Escolha como quer acompanhar suas finanças</h2><p>Os pagamentos são processados com segurança pelo Mercado Pago.</p></div><div class="price-grid"><article class="price-card"><h3>Plano mensal</h3><p class="price">R$ 25 <small>/ mês</small></p><p class="price-note">Cobrança mensal recorrente. Cancele conforme as condições apresentadas no Mercado Pago.</p><a class="button" href="/register">Assinar mensalmente</a></article><article class="price-card annual"><span class="badge">ECONOMIZE NO ANUAL</span><h3>Plano anual</h3><p class="price">R$ 200 <small>/ ano</small></p><p class="price-note">Pagamento único por 12 meses de acesso. Renovação manual e opção de parcelar em até 3x no cartão.</p><a class="button primary" href="/register">Escolher plano anual</a><p class="payment-note">Pix, débito e crédito podem depender dos meios habilitados na conta do Mercado Pago.</p></article></div></section></main></body></html>`;
 }
 
+function paymentReturnPage(nonce) {
+  return '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>Confirmando pagamento · Minhas Finanças</title><style nonce="' + nonce + '">*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f5f8f6;color:#18332d;font:15px Arial,sans-serif}.box{width:min(520px,calc(100% - 32px));padding:32px;border:1px solid #e1e9e3;border-radius:18px;background:#fff;box-shadow:0 18px 55px #18332d12}.brand{font-size:18px;font-weight:700;margin-bottom:28px}.eyebrow{font-size:10px;letter-spacing:1.5px;color:#56816c;font-weight:700}h1{font-size:27px;margin:10px 0}.copy{color:#65746c;font-size:13px;line-height:1.7}.button{display:block;text-align:center;padding:14px 18px;margin-top:18px;border-radius:9px;background:#215a47;color:#fff;text-decoration:none;font-size:13px;font-weight:700}.note{padding:13px;border-radius:10px;background:#f0f6f1;color:#4e6d5a;font-size:12px;line-height:1.6}</style></head><body><main class="box"><div class="brand">Minhas Finanças</div><p class="eyebrow">CONFIRMAÇÃO DO MERCADO PAGO</p><h1>Pagamento em confirmação</h1><p class="copy">O cadastro só será criado depois que o Mercado Pago confirmar a aprovação do pagamento. Esse processo pode levar alguns instantes.</p><p class="note">Após a aprovação, enviaremos um código de verificação ao e-mail informado no cadastro. Depois, você poderá entrar e confirmar o endereço para liberar o painel.</p><a class="button" href="/login">Ir para o login</a><a class="button" href="/">Voltar à página inicial</a></main></body></html>';
 function accessPage(mode, nonce) {
   const setupRequired = mode === 'register';
   const forgot = mode === 'forgot';
   const heading = setupRequired ? 'Crie sua conta' : forgot ? 'Redefina sua senha' : 'Acesse seu controle';
-  const detail = setupRequired ? 'Cadastre seu usuário, e-mail e senha. O e-mail será usado para verificar sua conta e recuperar o acesso.' : forgot ? 'Informe o e-mail cadastrado para receber um código temporário.' : 'Entre para continuar para seu painel financeiro.';
+  const detail = setupRequired ? 'Escolha um plano e informe seus dados. Sua conta só será criada após a aprovação do pagamento; depois enviaremos a verificação por e-mail.' : forgot ? 'Informe o e-mail cadastrado para receber um código temporário.' : 'Entre para continuar para seu painel financeiro.';
   const passwordField = `<label>Senha<input name="password" type="password" autocomplete="${setupRequired ? 'new-password' : 'current-password'}" required minlength="${setupRequired ? '12' : '1'}"></label>${setupRequired ? '<label>Confirme a senha<input name="confirmPassword" type="password" autocomplete="new-password" required minlength="12"></label>' : ''}`;
   const route = setupRequired ? '/api/setup' : forgot ? '/api/password-reset' : '/api/login';
   const submit = setupRequired ? 'Criar conta' : forgot ? 'Salvar nova senha' : 'Entrar';
   const links = forgot ? '<a href="/login">Voltar para o login</a>' : setupRequired ? '<a href="/login">Já tenho conta · Entrar</a>' : '<a href="/forgot-password">Esqueceu a senha?</a><a href="/register">Ainda não tenho conta · Cadastrar</a>';
-  const recoveryNotice = setupRequired ? '<p class="hint">Após o cadastro, será exibido também um código de recuperação. Guarde-o em local seguro.</p>' : '';
+  const recoveryNotice = setupRequired ? '<p class="hint">Nenhuma conta é criada antes da confirmação do pagamento. O código de verificação será enviado ao e-mail após a aprovação.</p>' : '';
   const planFields = setupRequired ? '<fieldset class="plans"><legend>Escolha seu plano</legend><label class="plan"><input type="radio" name="plan" value="monthly" required><span><strong>Mensal · R$ 25/mês</strong><small>Assinatura recorrente, cancelável conforme as condições do Mercado Pago.</small></span></label><label class="plan"><input type="radio" name="plan" value="annual" required><span><strong>Anual · R$ 200 por 12 meses</strong><small>Pagamento único, renovação manual. Cartão em até 3x; Pix e débito conforme disponibilidade na conta Mercado Pago.</small></span></label></fieldset>' : '';
   const formMarkup = setupRequired
     ? `<form id="access"><label>Usuário<input name="username" autocomplete="username" required minlength="3" maxlength="40"></label><label>E-mail<input name="email" type="email" autocomplete="email" required maxlength="254"></label>${planFields}${passwordField}<button>${submit}</button><div class="error" id="error" role="alert"></div><div class="success" id="success" hidden></div></form>`
@@ -910,7 +1020,7 @@ function accessPage(mode, nonce) {
   *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f7f8f5;color:#18332d;font:14px Arial,sans-serif}.box{width:min(420px,calc(100% - 32px));background:#fff;border:1px solid #e8ece9;border-radius:16px;padding:30px;box-shadow:0 18px 55px #18332d12}.brand{display:flex;align-items:center;gap:9px;font-weight:bold;font-size:18px;margin-bottom:28px;text-decoration:none;color:inherit}.mark{display:grid;place-items:center;width:36px;height:36px;border-radius:11px;background:linear-gradient(145deg,#28755f,#173c31);color:#fff}.mark svg{width:25px;height:25px}.eyebrow{font-size:9px;font-weight:bold;letter-spacing:1.5px;color:#87938d}h1{font-size:24px;margin:8px 0}.copy{font-size:12px;line-height:1.6;color:#78837f;margin-bottom:22px}label{display:flex;flex-direction:column;gap:7px;margin:14px 0;color:#64716a;font-size:11px}input{height:42px;border:1px solid #e1e7e2;border-radius:7px;padding:0 10px;font-size:13px}button{width:100%;border:0;border-radius:8px;background:#215a47;color:#fff;padding:13px;font-size:12px;font-weight:bold;margin-top:9px;cursor:pointer}.plans{border:1px solid #e1e7e2;border-radius:10px;padding:12px;margin:16px 0}.plans legend{font-size:11px;font-weight:bold;color:#334d43;padding:0 5px}.plan{display:flex;flex-direction:row;align-items:flex-start;gap:10px;margin:8px 0;padding:10px;border:1px solid #e7ece8;border-radius:8px;cursor:pointer}.plan input{width:16px;height:16px;flex:none;margin:2px 0 0;accent-color:#215a47}.plan span{display:grid;gap:5px}.plan strong{font-size:12px;color:#18332d}.plan small{font-size:10px;line-height:1.45;color:#748179}.hint{font-size:11px;line-height:1.6;color:#748179;margin-top:14px}.error{min-height:16px;color:#aa5947;font-size:11px;margin-top:12px}.success{padding:12px;background:#eff7f1;border:1px solid #d5e7d8;border-radius:8px;color:#245d43;font-size:12px;line-height:1.6;overflow-wrap:anywhere}.links{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:16px}.links a{font-size:11px;color:#28664d}.back{display:block;font-size:11px;color:#728078;text-decoration:none;margin-top:18px}@media(max-width:430px){.box{padding:24px}}.forgot-page [hidden]{display:none!important}
   </style></head><body class=""><main class="box"><a class="brand" href="/"><span class="mark"><svg viewBox="0 0 40 40" aria-hidden="true"><path d="M8 28.5 16.2 20l5.1 5.2L32 13.5M25.8 13.5H32v6.2" fill="none" stroke="currentColor" stroke-width="3.3" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>Minhas Finanças</span></a><div class="eyebrow">ACESSO PROTEGIDO</div><h1>${heading}</h1><p class="copy">${detail}</p>${formMarkup}${recoveryNotice}<nav class="links">${links}</nav><a class="back" href="/">← Página de apresentação</a></main><script nonce="${nonce}">
   const post=async(path,data)=>{const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const result=await response.json();if(!response.ok)throw new Error(result.error||'Não foi possível concluir.');return result};const show=id=>message=>{document.querySelector(id).textContent=message};
-  ${setupRequired || !forgot ? `document.querySelector('#access').addEventListener('submit',async event=>{event.preventDefault();const form=event.currentTarget,data=Object.fromEntries(new FormData(form));${setupRequired ? "if(data.password!==data.confirmPassword){show('#error')('As senhas não conferem.');return;}" : ''}try{const result=await post('${route}',data);if(result.recoveryCode){form.hidden=true;document.querySelector('.links').hidden=true;document.querySelector('.copy').textContent='Conta criada. Faça o pagamento e confirme seu e-mail para liberar o painel.';const message=document.querySelector('#success');message.hidden=false;message.textContent='Código de recuperação (exibido uma única vez): '+result.recoveryCode+(result.emailVerificationSent?' · Código de verificação enviado para '+data.email:result.emailMessage?' · '+result.emailMessage:'');const pay=document.createElement('a');pay.href=result.checkoutUrl;pay.target='_blank';pay.rel='noopener noreferrer';pay.className='button-link';pay.style.cssText='display:block;text-align:center;padding:13px;margin-top:16px;border-radius:8px;background:#087e80;color:#fff;text-decoration:none;font-size:12px;font-weight:bold';pay.textContent='Continuar para pagamento no Mercado Pago';document.querySelector('.box').append(pay);const next=document.createElement('a');next.href='/account-email';next.className='button-link';next.style.cssText='display:block;text-align:center;padding:13px;margin-top:10px;border-radius:8px;background:#215a47;color:#fff;text-decoration:none;font-size:12px;font-weight:bold';next.textContent='Confirmar meu e-mail';document.querySelector('.box').append(next);return;}location.replace('/')}catch(error){show('#error')(error.message)}});` : ''}
+  ${setupRequired || !forgot ? `document.querySelector('#access').addEventListener('submit',async event=>{event.preventDefault();const form=event.currentTarget,data=Object.fromEntries(new FormData(form));${setupRequired ? "if(data.password!==data.confirmPassword){show('#error')('As senhas não conferem.');return;}" : ''}try{const result=await post('${route}',data);if(result.checkoutUrl){form.hidden=true;document.querySelector('.links').hidden=true;document.querySelector('.copy').textContent='Conclua o pagamento no Mercado Pago. Sua conta só será criada após a aprovação.';const message=document.querySelector('#success');message.hidden=false;message.textContent='Após a confirmação, enviaremos um código de verificação para '+data.email+'. Redirecionando para o checkout…';location.assign(result.checkoutUrl);return;}location.replace('/')}catch(error){show('#error')(error.message)}});` : ''}
   ${forgot ? `const requestForm=document.querySelector('#requestEmail'),resetForm=document.querySelector('#emailReset'),recoveryForm=document.querySelector('#recoveryReset');let useRecovery=false;requestForm.addEventListener('submit',async event=>{event.preventDefault();const email=requestForm.elements.email.value.trim();try{await post('/api/password-reset/request',{email});document.querySelector('#requestSuccess').hidden=false;document.querySelector('#requestSuccess').textContent='Se o e-mail estiver cadastrado, enviaremos um código válido por 15 minutos.';resetForm.elements.email.value=email;requestForm.hidden=true;resetForm.hidden=false;document.querySelector('#toggleRecovery').textContent='Usar código de recuperação';}catch(error){show('#requestError')(error.message)}});resetForm.addEventListener('submit',async event=>{event.preventDefault();const data=Object.fromEntries(new FormData(resetForm));if(data.password!==data.confirmPassword){show('#emailResetError')('As senhas não conferem.');return;}try{await post('/api/password-reset/email',data);document.querySelector('.copy').textContent='Senha redefinida. Você já pode entrar com a nova senha.';resetForm.hidden=true;requestForm.hidden=true;document.querySelector('#toggleRecovery').hidden=true;}catch(error){show('#emailResetError')(error.message)}});recoveryForm.addEventListener('submit',async event=>{event.preventDefault();const data=Object.fromEntries(new FormData(recoveryForm));if(data.password!==data.confirmPassword){show('#recoveryError')('As senhas não conferem.');return;}try{await post('/api/password-reset',data);document.querySelector('.copy').textContent='Senha redefinida. Você já pode entrar com a nova senha.';recoveryForm.hidden=true;document.querySelector('#toggleRecovery').hidden=true;}catch(error){show('#recoveryError')(error.message)}});document.querySelector('#toggleRecovery').addEventListener('click',event=>{event.preventDefault();useRecovery=!useRecovery;requestForm.hidden=useRecovery;resetForm.hidden=true;recoveryForm.hidden=!useRecovery;event.currentTarget.textContent=useRecovery?'Voltar à recuperação por e-mail':'Usar código de recuperação';});` : ''}
   </script></body></html>`;
 }
@@ -1324,7 +1434,7 @@ async function main() {
       if (req.method === 'POST' && pathname === '/api/setup') {
         const remote = requestAddress(req);
         if (await incrementRateLimit('signup', remote, 15 * 60 * 1000) > 5) { send(res, 429, { error: 'Muitos cadastros deste endereço. Aguarde 15 minutos e tente novamente.' }); return; }
-        if (!emailDeliveryConfigured()) { send(res, 503, { error: 'Cadastro temporariamente indisponível. O envio de e-mail precisa estar configurado para confirmar a conta.' }); return; }
+        if (!emailDeliveryConfigured()) { send(res, 503, { error: 'Cadastro temporariamente indisponível. O envio de e-mail precisa estar configurado para confirmar a conta após o pagamento.' }); return; }
         if (!mercadoPagoConfigured()) { send(res, 503, { error: 'Cadastro temporariamente indisponível. Configure o Mercado Pago no servidor.' }); return; }
         const body = await readJson(req);
         const username = String(body.username || '').trim();
@@ -1332,39 +1442,54 @@ async function main() {
         const password = String(body.password || '');
         const plan = String(body.plan || '');
         if (!paymentPlan(plan)) { send(res, 400, { error: 'Escolha o plano mensal ou anual.' }); return; }
-        if (username.length < 3 || username.length > 40 || !validEmail(email) || password.length < 12 || password.length > 200 || password !== String(body.confirmPassword || '')) { send(res, 400, { error: 'Informe um usuário, e-mail válido e senha de pelo menos 12 caracteres confirmada.' }); return; }
+        if (username.length < 3 || username.length > 40 || !validEmail(email) || password.length < 12 || password.length > 200 || password !== String(body.confirmPassword || '')) {
+          send(res, 400, { error: 'Informe um usuário, e-mail válido e senha de pelo menos 12 caracteres confirmada.' }); return;
+        }
+
+        const accountExists = await dbGet('SELECT id FROM users WHERE lower(email) = lower(?) OR lower(username) = lower(?) LIMIT 1', email, username);
+        if (accountExists) { send(res, 409, { error: 'Este nome de usuário ou e-mail já está cadastrado.' }); return; }
+
+        const pending = await dbGet('SELECT id, username, email, salt, password_hash AS "passwordHash", plan, checkout_url AS "checkoutUrl" FROM pending_signups WHERE status = ? AND (lower(email) = lower(?) OR lower(username) = lower(?)) LIMIT 1',
+          'pending', email, username);
+        if (pending) {
+          if (pending.email === email && pending.username === username && pending.plan === plan) {
+            const candidate = await pbkdf(password, Buffer.from(pending.salt, 'base64'));
+            const expected = Buffer.from(pending.passwordHash, 'base64');
+            if (candidate.length === expected.length && timingSafeEqual(candidate, expected) && pending.checkoutUrl) {
+              send(res, 200, { ok: true, checkoutUrl: pending.checkoutUrl, plan });
+              return;
+            }
+          }
+          send(res, 409, { error: 'Já existe um cadastro pendente com este e-mail ou usuário. Continue o pagamento iniciado ou entre em contato com o suporte.' });
+          return;
+        }
+
+        const id = randomUUID();
         const salt = randomBytes(16);
         const hash = await pbkdf(password, salt);
-        const recoveryCode = randomBytes(18).toString('base64url');
-        const recoverySalt = randomBytes(16);
-        const recoveryHash = await pbkdf(recoveryCode, recoverySalt);
-        const id = randomUUID();
+        const externalReference = 'minhas-financas-signup:' + id + ':' + plan;
+        const createdAt = new Date().toISOString();
         try {
-          await dbRun('INSERT INTO users (id, username, email, salt, password_hash, recovery_salt, recovery_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            id, username, email, salt.toString('base64'), hash.toString('base64'), recoverySalt.toString('base64'), recoveryHash.toString('base64'), new Date().toISOString());
+          await dbRun('INSERT INTO pending_signups (id, username, email, salt, password_hash, plan, status, provider_id, checkout_url, external_reference, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)',
+            id, username, email, salt.toString('base64'), hash.toString('base64'), plan, 'pending', '', externalReference, createdAt);
         } catch (error) {
-          if (error.code === '23505' || String(error.message).includes('UNIQUE')) { send(res, 409, { error: 'Este nome de usuário ou e-mail já está cadastrado.' }); return; }
+          if (error.code === '23505' || String(error.message).includes('UNIQUE')) {
+            send(res, 409, { error: 'Já existe um cadastro ou pagamento pendente com este e-mail ou usuário.' }); return;
+          }
           throw error;
         }
+
         let checkout;
         try {
           checkout = await createMercadoPagoCheckout(req, id, email, plan);
-          const now = new Date().toISOString();
-          await dbRun('INSERT INTO user_subscriptions (user_id, plan, status, provider, provider_id, checkout_url, external_reference, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            id, plan, 'pending', 'mercadopago', checkout.providerId || null, checkout.url, checkout.externalReference, now, now);
+          await dbRun('UPDATE pending_signups SET provider_id = ?, checkout_url = ? WHERE id = ?', checkout.providerId || null, checkout.url, id);
         } catch (error) {
-          await dbRun('DELETE FROM users WHERE id = ?', id);
+          await dbRun('DELETE FROM pending_signups WHERE id = ?', id);
           send(res, error.status || 502, { error: error.message || 'Não foi possível iniciar o pagamento. Tente novamente.' });
           return;
         }
         await clearRateLimit('auth', remote);
-        let emailVerificationSent = false, emailMessage = '';
-        try {
-          const code = await createEmailCode(id, email, 'verify');
-          await sendMail(email, 'Verifique seu e-mail · Minhas Finanças', 'Seu código de verificação é ' + code + '. Ele expira em 15 minutos. Se você não iniciou o cadastro, ignore esta mensagem.');
-          emailVerificationSent = true;
-        } catch (error) { emailMessage = error.message || 'Não foi possível enviar o código de verificação.'; }
-        await createSession(res, req, await getUser(id), { recoveryCode, emailVerificationSent, emailMessage, checkoutUrl: checkout.url, plan });
+        send(res, 200, { ok: true, checkoutUrl: checkout.url, plan });
         return;
       }
       if (req.method === 'POST' && pathname === '/api/password-reset/request') {
@@ -1856,6 +1981,11 @@ async function main() {
         if (!session) { res.writeHead(302, { Location: '/login' }); res.end(); return; }
         const nonce = randomBytes(18).toString('base64');
         htmlResponse(res, accountEmailPage(nonce, await getUser(session.userId)), nonce);
+        return;
+      }
+      if (req.method === 'GET' && pathname === '/payment-return') {
+        const nonce = randomBytes(18).toString('base64');
+        htmlResponse(res, paymentReturnPage(nonce), nonce);
         return;
       }
       if (req.method === 'GET' && pathname === '/checkout-pending') {
