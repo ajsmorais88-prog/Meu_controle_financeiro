@@ -1351,6 +1351,7 @@ async function signedBinanceAccount(apiKey, apiSecret) {
   return { configured: true, balances: balancesWithCost, updatedAt: new Date().toISOString() };
 }
 
+}
 async function serveStatic(req, res, pathname) {
   const allowed = new Map([['/', 'dashboard.html'], ['/index.html', 'dashboard.html'], ['/favicon.svg', 'favicon.svg'], ['/app.js', 'app.js'], ['/styles.css', 'styles.css'], ['/vendor/pdfjs/pdf.min.mjs', 'vendor/pdfjs/pdf.min.mjs'], ['/vendor/pdfjs/pdf.worker.min.mjs', 'vendor/pdfjs/pdf.worker.min.mjs']]);
   const filename = allowed.get(pathname);
@@ -2075,7 +2076,6 @@ async function main() {
   }
 }
 
-}
 
 applicationInitialization = main().catch(error => {
   applicationStartupError = error;
