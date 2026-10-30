@@ -538,7 +538,7 @@
   }
 
   function selectView(view){const transactionsView=view==='transactions';const fixed=view==='fixed';const cardView=view==='cards';const investmentsView=view==='investments';const reportsView=view==='reports';const connectionsView=view==='connections';$('#dashboardView').hidden=transactionsView||fixed||cardView||investmentsView||reportsView||connectionsView;$('#transactionsView').hidden=!transactionsView;$('#fixedView').hidden=!fixed;$('#cardsView').hidden=!cardView;$('#investmentsView').hidden=!investmentsView;$('#reportsView').hidden=!reportsView;$('#connectionsView').hidden=!connectionsView;for(const [id,active] of [['overviewTab',view==='overview'],['transactionsTab',transactionsView],['fixedTab',fixed],['cardsTab',cardView],['investmentsTab',investmentsView],['reportsTab',reportsView],['connectionsTab',connectionsView]]){document.getElementById(id).classList.toggle('active',active);document.getElementById(id).setAttribute('aria-selected',String(active));}}
-  $('#overviewTab').addEventListener('click',()=>selectView('overview'));$('#transactionsTab').addEventListener('click',()=>selectView('transactions'));$('#fixedTab').addEventListener('click',()=>selectView('fixed'));$('#cardsTab').addEventListener('click',()=>selectView('cards'));$('#investmentsTab').addEventListener('click',()=>selectView('investments'));$('#reportsTab').addEventListener('click',()=>selectView('reports'));$('#connectionsTab').addEventListener('click',()=>{selectView('connections');loadBrokerageConnectors();loadConnectedBrokerages();});
+  $('#overviewTab').addEventListener('click',()=>selectView('overview'));$('#transactionsTab').addEventListener('click',()=>selectView('transactions'));$('#fixedTab').addEventListener('click',()=>selectView('fixed'));$('#cardsTab').addEventListener('click',()=>selectView('cards'));$('#investmentsTab').addEventListener('click',()=>selectView('investments'));$('#reportsTab').addEventListener('click',()=>selectView('reports'));$('#connectionsTab').addEventListener('click',()=>{selectView('connections');loadBrokerageConnectors();loadConnectedBrokerages();if(sessionInfo.isAdmin)loadMyPluggyStatus();});
   $('#importCardStatement').addEventListener('click',()=>{if(!cards.length){showToast('Cadastre um cartão antes de importar a fatura.');return;}if(!$('#statementCardId').value){showToast('Selecione o cartão que recebeu esta fatura.');return;}$('#cardStatementFile').click();});
   $('#cardStatementFile').addEventListener('change',async(event)=>{const file=event.target.files?.[0];if(!file)return;try{await importCardStatement(file);}catch(error){showToast(error.message||'Não foi possível importar esta fatura.');}finally{event.target.value='';}});
   $('#transactionsMonthFilter').value=monthKey(today);$('#transactionsMonthFilter').addEventListener('change',event=>{const [year,month]=event.currentTarget.value.split('-').map(Number);monthOffset=(year-today.getFullYear())*12+(month-1-today.getMonth());render();});$('#bankAccountSelect').addEventListener('change',event=>{selectedBankAccountId=event.currentTarget.value;localStorage.setItem(BANK_SELECTED_ACCOUNT_KEY,selectedBankAccountId);renderAllTransactions();});$('#addBankAccount').addEventListener('click',()=>{const name=prompt('Nome para identificar a conta bancária:');if(!name||!name.trim())return;const normalized=name.trim();if(bankAccounts.some(item=>item.name.toLocaleLowerCase('pt-BR')===normalized.toLocaleLowerCase('pt-BR'))){showToast('Já existe uma conta com esse nome.');return;}const id=crypto.randomUUID?crypto.randomUUID():`bank-${Date.now()}-${Math.random()}`;bankAccounts.push({id,name:normalized});selectedBankAccountId=id;localStorage.setItem(BANK_ACCOUNTS_KEY,JSON.stringify(bankAccounts));localStorage.setItem(BANK_SELECTED_ACCOUNT_KEY,id);renderAllTransactions();showToast('Conta bancária adicionada. Importe o extrato dela.');});
@@ -616,6 +616,105 @@
   $('#reloadBrokerageConnectors').addEventListener('click',loadBrokerageConnectors);
   $('#brokerageConnectorSelect').addEventListener('change',()=>{$('#connectBrokerage').disabled=!$('#brokerageConnectorSelect').value;});
   $('#connectBrokerage').addEventListener('click',connectSelectedBrokerage);
+  if(sessionInfo.isAdmin){
+    $('#myPluggyAdminPanel').hidden=false;
+    $('#connectMyPluggy').addEventListener('click',connectMyPluggy);
+    $('#syncMyPluggy').addEventListener('click',syncMyPluggy);
+  }
+  async function loadMyPluggyStatus(){
+    if(!sessionInfo.isAdmin)return;
+    const status=$('#myPluggyStatus');
+    try{
+      const response=await fetch('/api/mypluggy/status',{cache:'no-store'}),data=await response.json();
+      if(response.status===401){location.reload();return;}
+      if(!response.ok)throw new Error(data.error||'Não foi possível verificar MeuPluggy.');
+      status.textContent=data.message||'';
+      $('#connectMyPluggy').textContent=data.connected?'Reconectar MeuPluggy':'Conectar MeuPluggy';
+      $('#syncMyPluggy').hidden=!data.connected;
+      $('#syncMyPluggy').disabled=false;
+    }catch(error){status.textContent=error.message;}
+  }
+  async function connectMyPluggy(){
+    const button=$('#connectMyPluggy'),status=$('#myPluggyStatus');
+    button.disabled=true;status.textContent='Preparando conexão pessoal segura…';
+    try{
+      const tokenResponse=await fetch('/api/mypluggy/connect-token',{method:'POST',cache:'no-store'}),token=await tokenResponse.json();
+      if(tokenResponse.status===401){location.reload();return;}
+      if(!tokenResponse.ok)throw new Error(token.error||'Não foi possível preparar a conexão MeuPluggy.');
+      if(typeof window.PluggyConnect!=='function')throw new Error('O componente Pluggy Connect não carregou.');
+      const widget=new window.PluggyConnect({
+        connectToken:token.accessToken,
+        includeSandbox:false,
+        connectorTypes:['PERSONAL_BANK'],
+        connectorIds:[200],
+        selectedConnectorId:200,
+        countries:['BR'],
+        onSuccess:async result=>{
+          const itemId=result?.item?.id||result?.id;
+          if(!itemId){status.textContent='A Pluggy não retornou o identificador da conexão.';return;}
+          try{
+            const response=await fetch('/api/mypluggy/item',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({itemId})});
+            const data=await response.json();
+            if(!response.ok)throw new Error(data.error||'Não foi possível salvar a conexão.');
+            status.textContent='MeuPluggy conectado. Importando contas e transações…';
+            await loadMyPluggyStatus();
+            await syncMyPluggy();
+          }catch(error){status.textContent=error.message;showToast(error.message);}
+        },
+        onError:error=>{const message=error?.message||'A Pluggy não conseguiu concluir a autorização. Confirme que MeuPluggy está habilitado na aplicação Pluggy e tente novamente.';status.textContent=message;showToast(message);}
+      });
+      widget.init();
+    }catch(error){status.textContent=error.message;showToast(error.message);}
+    finally{button.disabled=false;}
+  }
+  async function syncMyPluggy(){
+    if(!sessionInfo.isAdmin)return;
+    const button=$('#syncMyPluggy'),status=$('#myPluggyStatus'),accountsList=$('#myPluggyAccounts');
+    button.disabled=true;status.textContent='Sincronizando contas e transações do MeuPluggy…';
+    try{
+      const response=await fetch('/api/mypluggy/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',cache:'no-store'}),data=await response.json();
+      if(response.status===401){location.reload();return;}
+      if(!response.ok)throw new Error(data.error||'Não foi possível sincronizar MeuPluggy.');
+      const importedAccounts=[];
+      for(const account of data.accounts||[]){
+        const accountId='pluggy-'+String(account.id);
+        let saved=bankAccounts.find(item=>String(item.id)===accountId);
+        if(!saved){saved={id:accountId,name:String(account.name||'Conta')+' · MeuPluggy',source:'MeuPluggy',pluggyAccountId:String(account.id)};bankAccounts.push(saved);}
+        saved.name=String(account.name||'Conta')+' · MeuPluggy';saved.source='MeuPluggy';saved.pluggyAccountId=String(account.id);saved.balance=Number(account.balance)||0;saved.currencyCode=String(account.currencyCode||'BRL');
+        importedAccounts.push(saved);
+      }
+      if(importedAccounts.length){
+        localStorage.setItem(BANK_ACCOUNTS_KEY,JSON.stringify(bankAccounts));
+        if(selectedBankAccountId==='main'||!bankAccounts.some(item=>String(item.id)===String(selectedBankAccountId))){
+          selectedBankAccountId=String(importedAccounts[0].id);
+          localStorage.setItem(BANK_SELECTED_ACCOUNT_KEY,selectedBankAccountId);
+        }
+      }
+      let added=0,updated=0;
+      for(const movement of data.transactions||[]){
+        const externalId=String(movement.externalId||'');
+        const accountId='pluggy-'+String(movement.accountId||'');
+        const normalized={...movement,id:String(movement.id||externalId),externalId,bankAccountId:accountId,createdAt:Date.now()};
+        const existing=transactions.find(item=>externalId&&item.externalId===externalId);
+        if(existing){const id=existing.id;Object.assign(existing,normalized,{id,createdAt:existing.createdAt||normalized.createdAt});updated++;}
+        else{transactions.push(normalized);added++;}
+      }
+      localStorage.setItem(TX_KEY,JSON.stringify(transactions));
+      render();
+      renderAllTransactions();
+      accountsList.replaceChildren();
+      for(const account of importedAccounts){
+        const row=document.createElement('div');row.className='brokerage-position-row';
+        const name=document.createElement('span');name.textContent=account.name;
+        const balance=document.createElement('strong');balance.textContent=money(account.balance);
+        row.append(name,balance);accountsList.append(row);
+      }
+      accountsList.hidden=!importedAccounts.length;
+      status.textContent=`Sincronização concluída · ${importedAccounts.length} conta(s), ${added} nova(s) e ${updated} atualizada(s).`;
+      showToast('MeuPluggy sincronizado com as transações bancárias.');
+    }catch(error){status.textContent=error.message;showToast(error.message);}
+    finally{button.disabled=false;}
+  }
   async function loadBrokerageConnectors(){
     const select=$('#brokerageConnectorSelect'),status=$('#brokerageConnectorStatus'),button=$('#connectBrokerage'),reload=$('#reloadBrokerageConnectors');
     reload.disabled=true;button.disabled=true;status.textContent='Buscando corretoras disponíveis na Pluggy…';select.replaceChildren(new Option('Carregando corretoras…',''));
