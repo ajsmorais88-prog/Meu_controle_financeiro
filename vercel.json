@@ -2,14 +2,44 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "fluid": true,
   "functions": {
-    "api/**/*.ts": { "includeFiles": "dashboard.html" }
+    "api/**/*.ts": {
+      "includeFiles": "dashboard.html"
+    }
   },
   "rewrites": [
-    { "source": "/api/:path*", "missing": [{ "type": "query", "key": "path" }], "destination": "/api/home?path=/api/:path*" },
-    { "source": "/", "destination": "/api/home?path=/" },
-    { "source": "/login", "destination": "/api/home?path=/login" },
-    { "source": "/register", "destination": "/api/home?path=/register" },
-    { "source": "/forgot-password", "destination": "/api/home?path=/forgot-password" },
-    { "source": "/account-email", "destination": "/api/home?path=/account-email" }
+    {
+      "source": "/api/:path*",
+      "missing": [
+        {
+          "type": "query",
+          "key": "path"
+        }
+      ],
+      "destination": "/api/home?path=/api/:path*"
+    },
+    {
+      "source": "/",
+      "destination": "/api/home?path=/"
+    },
+    {
+      "source": "/login",
+      "destination": "/api/home?path=/login"
+    },
+    {
+      "source": "/register",
+      "destination": "/api/home?path=/register"
+    },
+    {
+      "source": "/forgot-password",
+      "destination": "/api/home?path=/forgot-password"
+    },
+    {
+      "source": "/account-email",
+      "destination": "/api/home?path=/account-email"
+    },
+    {
+      "source": "/admin",
+      "destination": "/api/home?path=/admin"
+    }
   ]
 }
