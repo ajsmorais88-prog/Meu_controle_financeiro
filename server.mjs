@@ -1940,7 +1940,7 @@ async function main() {
             if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(itemId)) { send(res, 400, { error: 'Identificador de conexão inválido.' }); return; }
             try {
               const item = await pluggyRequest(`/items/${encodeURIComponent(itemId)}`);
-              if (String(item.clientUserId || '') !== session.userId) { send(res, 403, { error: 'Esta conexão MeuPluggy não pertence à conta administradora.' }); return; }
+              if (item.clientUserId && String(item.clientUserId) !== session.userId) { send(res, 403, { error: 'Esta conexão Pluggy está vinculada a outro usuário.' }); return; }
               const connectorId = Number(item.connector?.id || item.connectorId);
               const connectorName = openFinanceConnectorName(item);
               if (connectorId !== 200 && !isMeuPluggyConnector(connectorName)) { send(res, 400, { error: 'Selecione o conector MeuPluggy para concluir a conexão.' }); return; }
