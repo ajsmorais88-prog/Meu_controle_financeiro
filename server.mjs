@@ -2075,6 +2075,8 @@ async function main() {
   }
 }
 
+}
+
 applicationInitialization = main().catch(error => {
   applicationStartupError = error;
   console.error('Falha ao iniciar servidor:', error);
