@@ -1972,7 +1972,7 @@ async function main() {
                   accountId: String(account.id),
                   description: String(entry.description || entry.descriptionRaw || 'Transação MeuPluggy').slice(0, 120),
                   type,
-                  category: (typeof entry.category === 'string' ? entry.category : 'Open Finance').slice(0, 60),
+                  category: String(typeof entry.category === 'string' ? entry.category : entry.category?.description || entry.category?.name || entry.categoryDescription || entry.categoryName || 'Open Finance').slice(0, 60),
                   amount,
                   date,
                   paymentMethod: 'openfinance',
