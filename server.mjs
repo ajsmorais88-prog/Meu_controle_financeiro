@@ -2057,6 +2057,11 @@ async function main() {
       await serveStatic(req, res, pathname);
     } catch (error) {
       const status = error instanceof SyntaxError ? 400 : 500;
+      const diagnostic = String(error?.message || '').replace(/[\\r\\n\\t]+/g, ' ')
+        .replace(/[\\w.+-]+@[\\w.-]+\\.[A-Z]{2,}/gi, '[email]')
+        .replace(/\\bAPP_USR-[A-Za-z0-9-]+\\b/g, '[credential]')
+        .slice(0, 180);
+      console.error('[request-failure]', JSON.stringify({ path: pathname, name: String(error?.name || 'Error').slice(0, 60), code: String(error?.code || '').slice(0, 60), message: diagnostic }));
       if (!res.headersSent) send(res, status, { error: status === 400 ? 'Requisição inválida.' : 'Erro interno.' });
       else res.destroy();
     }
