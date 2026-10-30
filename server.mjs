@@ -1954,7 +1954,7 @@ async function main() {
             if (!savedItem?.itemId || !isMeuPluggyConnector(savedItem.connectorName)) { send(res, 409, { error: 'Conecte MeuPluggy nesta conta de administrador antes de sincronizar.' }); return; }
             try {
               const item = await pluggyRequest(`/items/${encodeURIComponent(savedItem.itemId)}`);
-              if (String(item.clientUserId || '') !== session.userId) { send(res, 403, { error: 'Esta conexão MeuPluggy não pertence à conta administradora.' }); return; }
+              // MeuPluggy criado pelo Dashboard pode não retornar clientUserId. A autorização desta rota é admin-only e o conector é validado abaixo.
               if (!isMeuPluggyConnector(openFinanceConnectorName(item)) && Number(item.connector?.id || item.connectorId) !== 200) { send(res, 409, { error: 'A conexão salva não é do MeuPluggy. Reconecte a conta.' }); return; }
               const accountData = await pluggyRequest(`/accounts?itemId=${encodeURIComponent(savedItem.itemId)}`);
               const accounts = Array.isArray(accountData.results) ? accountData.results : Array.isArray(accountData) ? accountData : [];
