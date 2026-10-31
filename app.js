@@ -370,7 +370,7 @@
   function renderCards(){
     const list=$('#cardsList');list.replaceChildren();$('#cardsEmpty').hidden=cards.length>0;
     for(const card of cards){
-      const currentMonth=monthKey(today);const spent=transactions.filter(t=>String(t.cardId)===String(card.id)&&t.type==='expense').flatMap(t=>cardPaymentSchedule(t,card)).filter(payment=>payment.monthKey>=currentMonth).reduce((sum,payment)=>sum+payment.amount,0);
+      const currentMonth=monthKey(today);const spent=transactions.filter(t=>String(t.cardId)===String(card.id)).flatMap(t=>cardPaymentSchedule(t,card)).filter(payment=>payment.monthKey>=currentMonth).reduce((sum,payment)=>sum+payment.amount,0);
       const limit=Number(card.limit)||0;const pct=limit?Math.round(spent/limit*100):0;
       const item=document.createElement('article');item.className='credit-card-item';
       const visual=document.createElement('div');visual.className='credit-card-visual';
@@ -393,7 +393,7 @@
       const cardTransactions=transactions.filter(t=>String(t.cardId)===String(card.id));
       const purchases=cardTransactions.flatMap(transaction=>{
         if(transaction.statementBatchId)return cardPaymentSchedule(transaction,card);
-        if(transaction.type!=='expense')return[];
+        if(transaction.type!=='expense'&&!(transaction.type==='income'&&transaction.source==='MeuPluggy'))return[];
         return cardPaymentSchedule(transaction,card);
       }).filter(payment=>payment.monthKey===selectedMonth).sort((a,b)=>b.transaction.date.localeCompare(a.transaction.date));
       const total=purchases.reduce((sum,payment)=>sum+payment.amount,0),group=document.createElement('article');group.className='panel card-purchase-group';
@@ -411,7 +411,7 @@
         const table=document.createElement('div');table.className='purchase-rows';
         for(const payment of purchases){
           const purchase=payment.transaction,row=document.createElement('div');row.className='purchase-row';const info=document.createElement('div');info.className='purchase-description';const description=document.createElement('strong');description.textContent=purchase.description;const meta=document.createElement('span');
-          const dateText=new Intl.DateTimeFormat('pt-BR',{day:'2-digit',month:'short',year:'numeric'}).format(parseDate(purchase.date)).replace('.','');const parts=[purchase.category,dateText];if(payment.installmentCount>1)parts.push(`Parcela ${payment.installmentIndex}/${payment.installmentCount}`);if(purchase.type==='income'&&purchase.statementBatchId)parts.push('Estorno/crédito');meta.textContent=parts.join(' · ');info.append(description,meta);
+          const dateText=new Intl.DateTimeFormat('pt-BR',{day:'2-digit',month:'short',year:'numeric'}).format(parseDate(purchase.date)).replace('.','');const parts=[purchase.category,dateText];if(Number(purchase.importedInstallmentCount)>1)parts.push(`Parcela ${purchase.importedInstallmentNumber||payment.installmentIndex}/${purchase.importedInstallmentCount}`);else if(payment.installmentCount>1)parts.push(`Parcela ${payment.installmentIndex}/${payment.installmentCount}`);if(purchase.type==='income'&&purchase.statementBatchId)parts.push('Estorno/crédito');meta.textContent=parts.join(' · ');info.append(description,meta);
           const amount=document.createElement('strong');amount.className=`purchase-amount ${payment.amount<0?'purchase-credit':''}`;amount.textContent=payment.amount<0?`− ${money(Math.abs(payment.amount))}`:money(payment.amount);
           const actions=document.createElement('div');actions.className='transaction-actions';const edit=document.createElement('button');edit.type='button';edit.className='row-action';edit.textContent='Editar';edit.addEventListener('click',()=>openEdit(purchase.id));const remove=document.createElement('button');remove.type='button';remove.className='row-action row-delete';remove.textContent='Apagar';remove.addEventListener('click',()=>deleteTransaction(purchase.id));actions.append(edit,remove);row.append(info,amount,actions);table.append(row);
         }
@@ -423,7 +423,7 @@
   }  function renderCardInvoiceChart(){
     const legend=$('#cardInvoiceLegend'),chart=$('#cardInvoiceChart'),empty=$('#cardInvoiceEmpty'),yearSelect=$('#cardInvoiceYear');
     legend.replaceChildren();chart.replaceChildren();empty.hidden=true;
-    const periodsByTransaction=transactions.filter(item=>item.cardId&&item.type==='expense').map(transaction=>({transaction,periods:cardPaymentSchedule(transaction,cards.find(card=>String(card.id)===String(transaction.cardId))).map(payment=>payment.monthKey)}));
+    const periodsByTransaction=transactions.filter(item=>item.cardId).map(transaction=>({transaction,periods:cardPaymentSchedule(transaction,cards.find(card=>String(card.id)===String(transaction.cardId))).map(payment=>payment.monthKey)}));
     const years=new Set([today.getFullYear()]);
     for(const entry of periodsByTransaction)for(const period of entry.periods){const year=Number(String(period).slice(0,4));if(Number.isInteger(year))years.add(year);}
     const priorYear=Number(yearSelect.value);yearSelect.replaceChildren();
@@ -667,6 +667,16 @@
       if(response.status===401){location.reload();return;}
       if(!response.ok)throw new Error(data.error||'Não foi possível sincronizar MeuPluggy.');
       const importedAccounts=[];
+      const importedCards=Array.isArray(data.cards)?data.cards:[];
+      const importedCardAccountIds=new Set(importedCards.map(card=>String(card.pluggyAccountId||'')).filter(Boolean));
+      bankAccounts=bankAccounts.filter(item=>!(item.source==='MeuPluggy'&&importedCardAccountIds.has(String(item.pluggyAccountId||'').replace(/^pluggy-/,''))));
+      transactions=transactions.filter(item=>!(importedCardAccountIds.has(String(item.accountId||''))&&String(item.externalId||'').startsWith('mypluggy:')&&!item.cardId));
+      for(const card of importedCards){
+        const existing=cards.find(item=>String(item.pluggyAccountId||'')===String(card.pluggyAccountId||'')||String(item.id)===String(card.id));
+        if(existing)Object.assign(existing,card);
+        else cards.push(card);
+      }
+      if(importedCards.length)saveCards();
       for(const account of data.accounts||[]){
         const accountId='pluggy-'+String(account.id);
         let saved=bankAccounts.find(item=>String(item.id)===accountId);
@@ -681,11 +691,12 @@
         const newestDate=(data.transactions||[]).map(movement=>String(movement.date||'').slice(0,10)).filter(date=>/^\d{4}-\d{2}-\d{2}$/.test(date)).sort().at(-1);
         if(newestDate)$('#transactionsMonthFilter').value=newestDate.slice(0,7);
       }
+      localStorage.setItem(BANK_ACCOUNTS_KEY,JSON.stringify(bankAccounts));
       let added=0,updated=0;
       for(const movement of data.transactions||[]){
         const externalId=String(movement.externalId||'');
         const accountId='pluggy-'+String(movement.accountId||'');
-        const normalized={...movement,id:String(movement.id||externalId),externalId,bankAccountId:accountId,createdAt:Date.now()};
+        const normalized={...movement,id:String(movement.id||externalId),externalId,createdAt:Date.now()};if(!movement.cardId)normalized.bankAccountId=accountId;
         const existing=transactions.find(item=>externalId&&item.externalId===externalId);
         if(existing){const id=existing.id;Object.assign(existing,normalized,{id,createdAt:existing.createdAt||normalized.createdAt});updated++;}
         else{transactions.push(normalized);added++;}
@@ -725,8 +736,8 @@
       accountsList.hidden=!importedAccounts.length;
       await loadMyPluggyStatus();
       const failedCount=Array.isArray(data.failedItems)?data.failedItems.length:0;
-      status.textContent=`Sincronização concluída · ${data.itemCount||1} conexão(ões), ${importedAccounts.length} conta(s), ${added} nova(s) e ${updated} atualizada(s)${failedCount?` · ${failedCount} conexão(ões) com erro`:''}.`;
-      showToast('MeuPluggy sincronizado com as transações bancárias.');
+      status.textContent=`Sincronização concluída · ${data.itemCount||1} conexão(ões), ${importedAccounts.length} conta(s) bancária(s), ${importedCards.length} cartão(ões), ${added} nova(s) e ${updated} atualizada(s)${failedCount?` · ${failedCount} conexão(ões) com erro`:''}.`;
+      showToast('MeuPluggy sincronizado: extratos em Transações bancárias e compras em Cartões.');
     }catch(error){status.textContent=error.message;showToast(error.message);}
     finally{button.disabled=false;}
   }
