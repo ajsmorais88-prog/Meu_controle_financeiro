@@ -131,7 +131,7 @@
   let toastTimer;
   const monthKey = (date) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}`;
   const cardClosingDay = (card) => { const day=Number(card?.closingDay); return Number.isInteger(day)&&day>=1&&day<=31?day:20; };
-  const cardInvoiceMonth = (dateValue,card) => { const [year,month,day]=String(dateValue).split('-').map(Number); return monthKey(new Date(year,month-1+(day>cardClosingDay(card)?2:1),1)); };
+  const cardInvoiceMonth = (dateValue,card) => { const [year,month,day]=String(dateValue).slice(0,10).split('-').map(Number); return monthKey(new Date(year,month-1+(day>cardClosingDay(card)?1:0),1)); };
   function cardInstallmentAmount(transaction,index){const cents=Math.round((Number(transaction.amount)||0)*100);if(transaction.statementBatchId)return cents/100;const count=Math.min(120,Math.max(1,Number(transaction.installments)||1));const base=Math.floor(cents/count),extra=cents%count;return(base+(index<=extra?1:0))/100;}
   function cardPaymentSchedule(transaction,card){
     const count=Math.min(120,Math.max(1,Number(transaction.installments)||1));
@@ -140,7 +140,7 @@
     let statementMonth=transaction.statementMonth;
     if(transaction.source==='MeuPluggy'){
       const matchedBill=transaction.billId&&Array.isArray(card?.pluggyBills)?card.pluggyBills.find(item=>String(item.id)===String(transaction.billId)):null;
-      statementMonth=matchedBill?.monthKey||'';
+      statementMonth=matchedBill?.monthKey||statementMonth||'';
     }else if(!transaction.statementBatchId){
       statementMonth='';
     }
@@ -468,7 +468,7 @@
         if(transaction.type!=='expense'&&!(transaction.type==='income'&&transaction.source==='MeuPluggy'))return[];
         return cardPaymentSchedule(transaction,card);
       }).filter(payment=>payment.monthKey===selectedMonth).sort((a,b)=>b.transaction.date.localeCompare(a.transaction.date));
-      const bill=Array.isArray(card.pluggyBills)?card.pluggyBills.find(item=>String(item.monthKey)===selectedMonth):null;const listedTotal=purchases.reduce((sum,payment)=>sum+payment.amount,0);const billTotal=bill?Number(bill.totalAmount):null;const useOfficialBill=bill&&Number.isFinite(billTotal)&&(Math.abs(billTotal)>0.005||Math.abs(listedTotal)<0.005);const total=useOfficialBill?billTotal:listedTotal,group=document.createElement('article');group.className='panel card-purchase-group';
+      const bill=Array.isArray(card.pluggyBills)?card.pluggyBills.find(item=>String(item.monthKey)===selectedMonth):null;const listedTotal=purchases.reduce((sum,payment)=>sum+payment.amount,0);const billTotal=bill?Number(bill.totalAmount):null;const useOfficialBill=Boolean(bill)&&Number.isFinite(billTotal);const total=useOfficialBill?billTotal:listedTotal,group=document.createElement('article');group.className='panel card-purchase-group';
       const heading=document.createElement('div');heading.className='card-purchase-heading';const title=document.createElement('div');const cardName=document.createElement('h2');cardName.textContent=card.name;const due=document.createElement('span');due.className='card-detail';due.textContent=`Fecha dia ${cardClosingDay(card)} · Vencimento dia ${card.dueDay} · Limite ${money(card.limit)}`;title.append(cardName,due);
       const monthTotal=document.createElement('div');monthTotal.className='card-month-total';const totalLabel=document.createElement('span');totalLabel.textContent=`Fatura · ${new Intl.DateTimeFormat('pt-BR',{month:'long',year:'numeric'}).format(new Date(`${selectedMonth}-02T12:00:00`))}${useOfficialBill?' · Open Finance':bill?' · estimada':''}`;const totalValue=document.createElement('strong');totalValue.textContent=money(total);monthTotal.append(totalLabel,totalValue);heading.append(title,monthTotal);group.append(heading);if(useOfficialBill){const billNote=document.createElement('p');billNote.className='card-detail';billNote.textContent='Total oficial da fatura retornado pela Pluggy. Os lançamentos detalhados aparecem abaixo.';group.append(billNote);}else if(bill||card.source==='MeuPluggy'){const billNote=document.createElement('p');billNote.className='card-detail';billNote.textContent='Fatura fechada ainda sem total disponível na Pluggy; valor estimado pela soma dos lançamentos deste período.';group.append(billNote);}
       const batches=new Map();for(const transaction of cardTransactions){if(transaction.statementBatchId&&String(transaction.statementMonth)===selectedMonth)batches.set(transaction.statementBatchId,transaction);}
