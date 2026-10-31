@@ -147,8 +147,9 @@
       }
       return schedule;
     }
-    const [year,month,day]=String(transaction.date).split('-').map(Number);
-    const firstMonth=new Date(year,month-1+(day>cardClosingDay(card)?2:1),1);
+    const referenceDate=String(transaction.purchaseDate||transaction.date).slice(0,10);
+    const [year,month,day]=referenceDate.split('-').map(Number);
+    const firstMonth=new Date(year,month-1+(day>cardClosingDay(card)?1:0),1);
     return Array.from({length:count},(_,index)=>{
       const paymentMonth=new Date(firstMonth.getFullYear(),firstMonth.getMonth()+index,1);
       return{transaction,installmentIndex:index+1,installmentCount:count,monthKey:monthKey(paymentMonth),amount:cardInstallmentAmount(transaction,index+1)*sign};
