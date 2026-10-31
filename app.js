@@ -224,7 +224,6 @@
     renderAllTransactions();
     $('#balanceValue').textContent=$('#bankAccountBalance').textContent;
     const overviewAccount=bankAccounts.find(account=>String(account.id)===String(selectedBankAccountId));
-    $('#overviewOpeningCaption').textContent='Fechamento até o último dia anterior';
     $('#overviewIncomeCaption').textContent=`${overviewAccount?.name||'Conta principal'} · Total recebido no mês`;
     $('#overviewExpenseCaption').textContent=`${overviewAccount?.name||'Conta principal'} · Total pago ou registrado no mês`;
     $('#overviewBalanceCaption').textContent=`${overviewAccount?.name||'Conta principal'} · Saldo atualizado do mês`;
