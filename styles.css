@@ -241,3 +241,12 @@ dialog{border:1px solid #dce7ed}
 }
 
 .mypluggy-account-block{padding:12px 0;border-top:1px solid #edf0ed}.mypluggy-account-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;color:#294c3a;font-size:12px}.mypluggy-account-heading strong{overflow-wrap:anywhere}.mypluggy-account-heading span{white-space:nowrap;font-weight:700}.mypluggy-transaction-wrap{overflow-x:auto;margin-top:8px;border:1px solid #edf0ed;border-radius:9px}.mypluggy-transaction-table{width:100%;min-width:560px;border-collapse:collapse;font-size:11px}.mypluggy-transaction-table th,.mypluggy-transaction-table td{padding:9px 10px;text-align:left;border-bottom:1px solid #edf0ed;vertical-align:top}.mypluggy-transaction-table th{background:#f5f8f5;color:#65736b;font-size:10px;font-weight:700;white-space:nowrap}.mypluggy-transaction-table tbody tr:last-child td{border-bottom:0}.mypluggy-transaction-table td:nth-child(2){min-width:160px;overflow-wrap:anywhere}.mypluggy-transaction-table td:nth-child(3){color:#718078}.mypluggy-transaction-table td:last-child{text-align:right;white-space:nowrap;font-weight:700}.mypluggy-transaction-table td.income{color:#31815a}.mypluggy-transaction-table td.expense{color:#b84f40}.mypluggy-transactions-empty{margin:8px 0 0;color:#849087;font-size:11px}
+
+/* Visão geral: período e banco alinhados à linha da descrição */
+.intro{align-items:flex-end;gap:24px}
+.intro-copy{flex:1;min-width:260px}
+.overview-controls{display:flex;align-items:flex-end;justify-content:flex-end;gap:10px;flex-wrap:wrap}
+.overview-bank-filter{display:flex;flex-direction:column;align-items:stretch;gap:4px;margin:0}
+.overview-bank-filter label{font-size:10px;line-height:1.2;color:#60736a}
+.overview-bank-filter select{height:39px;min-width:190px;max-width:260px}
+@media(max-width:700px){.intro{align-items:stretch}.overview-controls{justify-content:flex-start;width:100%}.overview-bank-filter{flex:1;min-width:150px}.overview-bank-filter select{width:100%;max-width:none}}
