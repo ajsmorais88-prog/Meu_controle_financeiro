@@ -862,6 +862,8 @@ async function listPluggyTransactions(accountId) {
 
 const MYPLUGGY_ITEMS_KEY = 'mypluggy_items';
 const MYPLUGGY_TRANSACTIONS_KEY = 'meu-controle-financeiro-transactions-v1';
+const MYPLUGGY_BANK_ACCOUNTS_KEY = 'meu-controle-financeiro-bank-accounts-v1';
+const MYPLUGGY_CARDS_KEY = 'meu-controle-financeiro-cards-v1';
 async function readMeuPluggyItems(userId) {
   let items = await getUserData(userId, MYPLUGGY_ITEMS_KEY, []);
   if (typeof items === 'string') { try { items = JSON.parse(items); } catch { items = []; } }
@@ -917,29 +919,91 @@ async function syncMeuPluggyIntoUserData(userId) {
       const accountData = await pluggyRequest(`/accounts?itemId=${encodeURIComponent(savedItem.itemId)}`);
       const accounts = Array.isArray(accountData.results) ? accountData.results : Array.isArray(accountData) ? accountData : [];
       const transactionsByAccount = await Promise.all(accounts.map(async account => ({ account, transactions: await listPluggyTransactions(account.id) })));
-      const transactions = transactionsByAccount.flatMap(({ account, transactions: entries }) => entries.map(entry => {
-        const amount = Math.abs(Number(entry.amount));
-        const date = String(entry.date || entry.createdAt || '').slice(0, 10);
-        if (!Number.isFinite(amount) || amount <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
-        const rawType = String(entry.type || '').toUpperCase();
-        const signedAmount = Number(entry.amount);
-        const type = rawType.includes('CREDIT') || rawType === 'INCOME' ? 'income' : rawType.includes('DEBIT') || rawType === 'EXPENSE' ? 'expense' : signedAmount < 0 ? 'expense' : 'income';
-        const category = typeof entry.category === 'string' ? entry.category : entry.category?.description || entry.category?.name || entry.categoryDescription || entry.categoryName || 'Open Finance';
-        return {
-          id: `mypluggy-${account.id}-${entry.id}`,
-          externalId: `mypluggy:${account.id}:${entry.id}`,
-          accountId: String(account.id),
-          description: String(entry.description || entry.descriptionRaw || 'Transação MeuPluggy').slice(0, 120),
-          type,
-          category: String(category).slice(0, 60),
-          amount,
-          date,
-          paymentMethod: 'openfinance',
-          accountName: String(account.name || account.type || 'Conta MeuPluggy').slice(0, 80),
-          bankAccountId: `pluggy-${account.id}`
-        };
-      }).filter(Boolean));
-      return { ok: true, savedItem, accounts, transactions };
+      const bankAccounts = [];
+      const cards = [];
+      const transactions = [];
+      for (const { account, transactions: entries } of transactionsByAccount) {
+        const isCard = String(account.subtype || '').toUpperCase() === 'CREDIT_CARD' || Boolean(account.creditData);
+        if (isCard) {
+          const credit = account.creditData || {};
+          const cardNumber = String(account.number || '').replace(/\D/g, '');
+          const closeMatch = String(credit.balanceCloseDate || '').match(/-(\d{2})$/);
+          const dueMatch = String(credit.balanceDueDate || '').match(/-(\d{2})$/);
+          const pluggyAccountId = String(account.id);
+          const cardName = String(account.name || 'Cartão MeuPluggy').slice(0, 70) + (cardNumber ? ` · ${cardNumber.slice(-4)}` : '');
+          cards.push({
+            id: `pluggy-card-${pluggyAccountId}`,
+            name: cardName,
+            limit: Number(credit.creditLimit) || (Number(credit.availableCreditLimit) || 0) + (Number(account.balance) || 0),
+            closingDay: closeMatch ? Number(closeMatch[1]) : 20,
+            dueDay: dueMatch ? Number(dueMatch[1]) : 5,
+            source: 'MeuPluggy',
+            pluggyAccountId,
+            lastFour: cardNumber.slice(-4)
+          });
+          for (const entry of entries) {
+            const amount = Math.abs(Number(entry.amount));
+            const date = String(entry.date || entry.createdAt || '').slice(0, 10);
+            if (!Number.isFinite(amount) || amount <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+            const metadata = entry.creditCardMetadata || {};
+            const rawType = String(entry.type || '').toUpperCase();
+            const type = Number(entry.amount) < 0 || rawType.includes('CREDIT') || rawType === 'INCOME' ? 'income' : 'expense';
+            const category = typeof entry.category === 'string' ? entry.category : entry.category?.description || entry.category?.name || entry.categoryDescription || entry.categoryName || 'Cartão de crédito';
+            transactions.push({
+              id: `mypluggy-card-${pluggyAccountId}-${entry.id}`,
+              externalId: `mypluggy-card:${pluggyAccountId}:${entry.id}`,
+              accountId: pluggyAccountId,
+              description: String(entry.description || entry.descriptionRaw || 'Compra no cartão').slice(0, 120),
+              type,
+              category: String(category).slice(0, 60),
+              amount,
+              date,
+              paymentMethod: 'cartao',
+              accountName: cardName,
+              cardId: `pluggy-card-${pluggyAccountId}`,
+              source: 'MeuPluggy',
+              installments: 1,
+              importedInstallmentNumber: Number(metadata.installmentNumber) || null,
+              importedInstallmentCount: Number(metadata.totalInstallments) || null,
+              purchaseDate: String(metadata.purchaseDate || '').slice(0, 10) || undefined,
+              lastFour: cardNumber.slice(-4)
+            });
+          }
+          continue;
+        }
+        bankAccounts.push({
+          id: `pluggy-${account.id}`,
+          name: `${String(account.name || account.type || 'Conta').slice(0, 80)} · MeuPluggy`,
+          source: 'MeuPluggy',
+          pluggyAccountId: String(account.id),
+          balance: Number(account.balance) || 0,
+          currencyCode: String(account.currencyCode || 'BRL')
+        });
+        for (const entry of entries) {
+          const amount = Math.abs(Number(entry.amount));
+          const date = String(entry.date || entry.createdAt || '').slice(0, 10);
+          if (!Number.isFinite(amount) || amount <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+          const rawType = String(entry.type || '').toUpperCase();
+          const signedAmount = Number(entry.amount);
+          const type = rawType.includes('CREDIT') || rawType === 'INCOME' ? 'income' : rawType.includes('DEBIT') || rawType === 'EXPENSE' ? 'expense' : signedAmount < 0 ? 'expense' : 'income';
+          const category = typeof entry.category === 'string' ? entry.category : entry.category?.description || entry.category?.name || entry.categoryDescription || entry.categoryName || 'Open Finance';
+          transactions.push({
+            id: `mypluggy-${account.id}-${entry.id}`,
+            externalId: `mypluggy:${account.id}:${entry.id}`,
+            accountId: String(account.id),
+            description: String(entry.description || entry.descriptionRaw || 'Transação MeuPluggy').slice(0, 120),
+            type,
+            category: String(category).slice(0, 60),
+            amount,
+            date,
+            paymentMethod: 'openfinance',
+            accountName: String(account.name || account.type || 'Conta MeuPluggy').slice(0, 80),
+            bankAccountId: `pluggy-${account.id}`,
+            source: 'MeuPluggy'
+          });
+        }
+      }
+      return { ok: true, savedItem, accounts: bankAccounts, cards, transactions };
     } catch (error) {
       return { ok: false, savedItem, error };
     }
@@ -954,59 +1018,55 @@ async function syncMeuPluggyIntoUserData(userId) {
   const syncedItems = new Map(successful.map(result => [String(result.savedItem.itemId), result]));
   const refreshedItems = linkedItems.map(savedItem => {
     const result = syncedItems.get(String(savedItem.itemId));
-    return result ? {
-      ...savedItem,
-      connectorName: 'MeuPluggy',
-      syncedAt,
-      accountNames: result.accounts.map(account => String(account.name || account.type || 'Conta')).slice(0, 30)
-    } : savedItem;
+    return result ? { ...savedItem, connectorName: 'MeuPluggy', syncedAt, accountNames: [...result.accounts, ...result.cards].map(account => String(account.name || 'Conta')).slice(0, 30) } : savedItem;
   });
   await writeMeuPluggyItems(userId, refreshedItems);
 
   const accounts = successful.flatMap(result => result.accounts);
+  const cards = successful.flatMap(result => result.cards);
   const transactions = successful.flatMap(result => result.transactions);
+  const creditAccountIds = new Set(cards.map(card => String(card.pluggyAccountId)));
   const existingTransactions = await storedArray(userId, MYPLUGGY_TRANSACTIONS_KEY);
-  const transactionIndex = new Map(existingTransactions.map((transaction, index) => [String(transaction.externalId || ''), index]).filter(([id]) => id));
+  const cleanedTransactions = existingTransactions.filter(transaction => !(creditAccountIds.has(String(transaction.accountId || '')) && String(transaction.externalId || '').startsWith('mypluggy:') && !transaction.cardId));
+  const transactionIndex = new Map(cleanedTransactions.map((transaction, index) => [String(transaction.externalId || ''), index]).filter(([id]) => id));
   let added = 0, updated = 0;
   for (const transaction of transactions) {
     const index = transactionIndex.get(transaction.externalId);
     if (index !== undefined) {
-      const previous = existingTransactions[index];
-      existingTransactions[index] = { ...previous, ...transaction, id: previous.id || transaction.id, createdAt: previous.createdAt || Date.now() };
+      const previous = cleanedTransactions[index];
+      cleanedTransactions[index] = { ...previous, ...transaction, id: previous.id || transaction.id, createdAt: previous.createdAt || Date.now() };
       updated++;
     } else {
-      existingTransactions.push({ ...transaction, createdAt: Date.now() });
-      transactionIndex.set(transaction.externalId, existingTransactions.length - 1);
+      cleanedTransactions.push({ ...transaction, createdAt: Date.now() });
+      transactionIndex.set(transaction.externalId, cleanedTransactions.length - 1);
       added++;
     }
   }
-  await setUserData(userId, MYPLUGGY_TRANSACTIONS_KEY, JSON.stringify(existingTransactions));
+  await setUserData(userId, MYPLUGGY_TRANSACTIONS_KEY, JSON.stringify(cleanedTransactions));
 
-  const bankAccounts = await storedArray(userId, MYPLUGGY_BANK_ACCOUNTS_KEY);
-  const importedAccounts = accounts.map(account => ({
-    id: `pluggy-${account.id}`,
-    name: `${String(account.name || account.type || 'Conta').slice(0, 80)} · MeuPluggy`,
-    source: 'MeuPluggy',
-    pluggyAccountId: String(account.id),
-    balance: Number(account.balance) || 0,
-    currencyCode: String(account.currencyCode || 'BRL')
-  }));
-  for (const incoming of importedAccounts) {
+  const storedBankAccounts = await storedArray(userId, MYPLUGGY_BANK_ACCOUNTS_KEY);
+  const bankAccounts = storedBankAccounts.filter(account => !(account.source === 'MeuPluggy' && creditAccountIds.has(String(account.pluggyAccountId || '').replace(/^pluggy-/, ''))));
+  for (const incoming of accounts) {
     const index = bankAccounts.findIndex(account => String(account.id) === incoming.id);
     if (index < 0) bankAccounts.push(incoming);
     else bankAccounts[index] = { ...bankAccounts[index], ...incoming };
   }
   await setUserData(userId, MYPLUGGY_BANK_ACCOUNTS_KEY, JSON.stringify(bankAccounts));
-  if (importedAccounts.length) {
-    const selectedAccountId = await getUserData(userId, MYPLUGGY_SELECTED_ACCOUNT_KEY, '');
-    if (!selectedAccountId || selectedAccountId === 'main' || !bankAccounts.some(account => String(account.id) === String(selectedAccountId))) {
-      await setUserData(userId, MYPLUGGY_SELECTED_ACCOUNT_KEY, importedAccounts[0].id);
-    }
+  const storedCards = await storedArray(userId, MYPLUGGY_CARDS_KEY);
+  for (const incoming of cards) {
+    const index = storedCards.findIndex(card => String(card.pluggyAccountId || '') === incoming.pluggyAccountId || String(card.id) === incoming.id);
+    if (index < 0) storedCards.push(incoming);
+    else storedCards[index] = { ...storedCards[index], ...incoming };
+  }
+  await setUserData(userId, MYPLUGGY_CARDS_KEY, JSON.stringify(storedCards));
+  const selectedAccountId = await getUserData(userId, 'meu-controle-financeiro-bank-selected-account-v1', '');
+  if (!bankAccounts.some(account => String(account.id) === String(selectedAccountId)) && bankAccounts.length) {
+    await setUserData(userId, 'meu-controle-financeiro-bank-selected-account-v1', bankAccounts[0].id);
   }
   return {
-    accountCount: importedAccounts.length, itemCount: successful.length, failedItems, added, updated, syncedAt,
-    accounts: accounts.map(account => ({ id: String(account.id), name: String(account.name || account.type || 'Conta'), type: String(account.subtype || account.type || ''), balance: Number(account.balance) || 0, currencyCode: String(account.currencyCode || 'BRL') })),
-    transactions
+    accountCount: accounts.length, cardCount: cards.length, itemCount: successful.length, failedItems, added, updated, syncedAt,
+    accounts: accounts.map(account => ({ id: String(account.pluggyAccountId), name: String(account.name.replace(/ · MeuPluggy$/, '')), type: String(account.subtype || account.type || ''), balance: Number(account.balance) || 0, currencyCode: String(account.currencyCode || 'BRL') })),
+    cards, transactions
   };
 }
 
@@ -1634,7 +1694,7 @@ async function main() {
           const admin = adminRow?.id ? await getUser(adminRow.id) : null;
           if (!admin?.emailVerifiedAt || !isAdminUser(admin)) { send(res, 404, { error: 'Conta administradora não encontrada.' }); return; }
           const result = await syncMeuPluggyIntoUserData(admin.id);
-          send(res, 200, { ok: true, accountCount: result.accountCount, itemCount: result.itemCount, failedItems: result.failedItems, added: result.added, updated: result.updated, syncedAt: result.syncedAt });
+          send(res, 200, { ok: true, accountCount: result.accountCount, cardCount: result.cardCount, itemCount: result.itemCount, failedItems: result.failedItems, added: result.added, updated: result.updated, syncedAt: result.syncedAt });
         } catch (error) {
           console.error('[mypluggy-daily-sync]', JSON.stringify({ status: error.status || 500, message: String(error.message || 'Falha na sincronização diária.').slice(0, 180) }));
           send(res, error.status || 502, { error: error.message || 'Não foi possível atualizar MeuPluggy.' });
@@ -2130,8 +2190,10 @@ async function main() {
                 updatedAt: result.syncedAt,
                 institutionName: 'MeuPluggy',
                 accounts: result.accounts,
+                cards: result.cards,
                 transactions: result.transactions,
                 itemCount: result.itemCount,
+                cardCount: result.cardCount,
                 failedItems: result.failedItems
               });
             } catch (error) { send(res, error.status || 502, { error: error.message || 'Não foi possível sincronizar MeuPluggy.' }); }
