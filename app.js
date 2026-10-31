@@ -867,8 +867,13 @@
       accountsList.hidden=!importedAccounts.length;
       await loadMyPluggyStatus();
       const failedCount=Array.isArray(data.failedItems)?data.failedItems.length:0;
-      status.textContent=`Sincronização concluída · ${data.itemCount||1} conexão(ões), ${importedAccounts.length} conta(s) bancária(s), ${importedCards.length} cartão(ões), ${added} nova(s) e ${updated} atualizada(s)${failedCount?` · ${failedCount} conexão(ões) com erro`:''}.`;
-      showToast('MeuPluggy sincronizado: extratos em Transações bancárias e compras em Cartões.');
+      const investmentWarnings=Array.isArray(data.investmentWarnings)?data.investmentWarnings:[];
+      const investmentStatus=investmentWarnings.length
+        ? ` · Não foi possível atualizar investimentos em ${investmentWarnings.length} conexão(ões): ${investmentWarnings.map(item=>item.message).join(' · ')}`
+        : ` · ${importedPluggyInvestments.length} posição(ões) de investimento`;
+      status.textContent=`Sincronização concluída · ${data.itemCount||1} conexão(ões), ${importedAccounts.length} conta(s) bancária(s), ${importedCards.length} cartão(ões), ${added} nova(s) e ${updated} atualizada(s)${failedCount?` · ${failedCount} conexão(ões) com erro`:''}${investmentStatus}.`;
+      if(investmentWarnings.length)showToast('Contas sincronizadas, mas os investimentos Pluggy não foram atualizados. Confira o detalhe exibido no painel.');
+      else showToast('MeuPluggy sincronizado: extratos em Transações bancárias, compras em Cartões e investimentos na aba Investimentos.');
     }catch(error){status.textContent=error.message;showToast(error.message);}
     finally{button.disabled=false;}
   }
@@ -912,8 +917,11 @@
     const button=$('#syncBinance'),status=$('#binanceConnectionState'),message=$('#binanceConnectionMessage');
     button.disabled=true;button.textContent='Sincronizando '+spec.name+'…';status.textContent='Consultando';message.textContent='Buscando saldos da conta '+spec.name+'…';
     try{
-      const response=await fetch('/api/crypto/'+provider+'/account',{cache:'no-store'});const data=await response.json();
-      if(response.status===401){location.reload();return;}if(!response.ok)throw new Error(data.error||'Não foi possível consultar a conta.');
+      const response=await fetch('/api/crypto/'+provider+'/account',{cache:'no-store'});
+      const data=await response.json().catch(()=>null);
+      if(response.status===401){location.reload();return;}
+      if(!data||typeof data!=='object')throw new Error('O servidor respondeu em formato inválido ao consultar '+spec.name+' (HTTP '+response.status+'). Tente novamente; se persistir, verifique a função de API publicada.');
+      if(!response.ok)throw new Error(data.error||'Não foi possível consultar a conta.');
       const previous=syncedBinance||{},snapshots={...(previous.exchanges||{})};
       const snapshot={exchange:provider,balances:Array.isArray(data.balances)?data.balances:[],updatedAt:data.updatedAt||new Date().toISOString()};
       snapshots[provider]=snapshot;syncedBinance={exchange:provider,selectedExchange:provider,balances:snapshot.balances,updatedAt:snapshot.updatedAt,exchanges:snapshots};
