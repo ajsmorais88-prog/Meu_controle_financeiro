@@ -1008,6 +1008,7 @@ async function syncMeuPluggyIntoUserData(userId) {
               ...(billId ? { billId } : {}),
               ...(billForecastDate ? { billForecastDate } : {}),
               statementMonth: statementMonth || null,
+              operationType: String(entry.operationType || ''),
               pluggyStatus: String(entry.status || '')
             });
           }
