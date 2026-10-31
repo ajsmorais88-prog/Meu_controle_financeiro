@@ -233,8 +233,8 @@
     renderCardPurchases();
     renderCardProjection();
     renderCardInvoiceChart();
-    renderMonthlyWeeklyChart();
-    renderMonthlyAllocationChart();
+    renderDashboardChartSafely(renderMonthlyWeeklyChart,'monthlyWeeklyChart','monthlyWeeklyEmpty','análise semanal');
+    renderDashboardChartSafely(renderMonthlyAllocationChart,'monthlyAllocationChart','monthlyAllocationEmpty','detalhamento mensal');
     renderInvestments();
     renderCryptoPortfolio();
     renderInvestmentAllocation();
@@ -323,6 +323,10 @@
       actions.append(edit,remove);row.append(icon,details,amount,actions);list.append(row);
     }
     renderOverviewBankSummary();
+  }
+  function renderDashboardChartSafely(renderer,chartId,emptyId,label){
+    try{renderer();}
+    catch(error){console.error(`Falha ao renderizar ${label}.`,error);const chart=document.getElementById(chartId),empty=document.getElementById(emptyId);if(chart)chart.replaceChildren();if(empty){empty.hidden=false;empty.textContent='Não foi possível carregar este gráfico. Tente novamente em instantes.';}}
   }
   function renderMonthlyWeeklyChart(){
     const chart=$('#monthlyWeeklyChart');const empty=$('#monthlyWeeklyEmpty');chart.replaceChildren();empty.hidden=true;
@@ -581,7 +585,8 @@
     popup.document.open();popup.document.write(html);popup.document.close();
   }
 
-  function selectView(view){const transactionsView=view==='transactions';const fixed=view==='fixed';const cardView=view==='cards';const investmentsView=view==='investments';const reportsView=view==='reports';const connectionsView=view==='connections';$('#dashboardView').hidden=transactionsView||fixed||cardView||investmentsView||reportsView||connectionsView;$('#transactionsView').hidden=!transactionsView;$('#fixedView').hidden=!fixed;$('#cardsView').hidden=!cardView;$('#investmentsView').hidden=!investmentsView;$('#reportsView').hidden=!reportsView;$('#connectionsView').hidden=!connectionsView;for(const [id,active] of [['overviewTab',view==='overview'],['transactionsTab',transactionsView],['fixedTab',fixed],['cardsTab',cardView],['investmentsTab',investmentsView],['reportsTab',reportsView],['connectionsTab',connectionsView]]){document.getElementById(id).classList.toggle('active',active);document.getElementById(id).setAttribute('aria-selected',String(active));}}
+  function selectView(view){const transactionsView=view==='transactions';const fixed=view==='fixed';const cardView=view==='cards';const investmentsView=view==='investments';const reportsView=view==='reports';const connectionsView=view==='connections';$('#dashboardView').hidden=transactionsView||fixed||cardView||investmentsView||reportsView||connectionsView;$('#transactionsView').hidden=!transactionsView;$('#fixedView').hidden=!fixed;$('#cardsView').hidden=!cardView;$('#investmentsView').hidden=!investmentsView;$('#reportsView').hidden=!reportsView;$('#connectionsView').hidden=!connectionsView;for(const [id,active] of [['overviewTab',view==='overview'],['transactionsTab',transactionsView],['fixedTab',fixed],['cardsTab',cardView],['investmentsTab',investmentsView],['reportsTab',reportsView],['connectionsTab',connectionsView]]){const tab=document.getElementById(id);tab.classList.toggle('active',active);tab.setAttribute('aria-selected',String(active));tab.tabIndex=active?0:-1;}}
+  $('#viewTabs').addEventListener('keydown',event=>{const ids=['overviewTab','transactionsTab','fixedTab','cardsTab','investmentsTab','reportsTab','connectionsTab'];const index=ids.indexOf(document.activeElement?.id);if(index<0)return;let next=index;if(event.key==='ArrowRight')next=(index+1)%ids.length;else if(event.key==='ArrowLeft')next=(index-1+ids.length)%ids.length;else if(event.key==='Home')next=0;else if(event.key==='End')next=ids.length-1;else return;event.preventDefault();const tab=document.getElementById(ids[next]);tab.focus();tab.click();});
   $('#overviewTab').addEventListener('click',()=>selectView('overview'));$('#transactionsTab').addEventListener('click',()=>selectView('transactions'));$('#fixedTab').addEventListener('click',()=>selectView('fixed'));$('#cardsTab').addEventListener('click',()=>selectView('cards'));$('#investmentsTab').addEventListener('click',()=>selectView('investments'));$('#reportsTab').addEventListener('click',()=>selectView('reports'));$('#connectionsTab').addEventListener('click',()=>{selectView('connections');loadBrokerageConnectors();loadConnectedBrokerages();if(sessionInfo.isAdmin)loadMyPluggyStatus();});
   $('#importCardStatement').addEventListener('click',()=>{if(!cards.length){showToast('Cadastre um cartão antes de importar a fatura.');return;}if(!$('#statementCardId').value){showToast('Selecione o cartão que recebeu esta fatura.');return;}$('#cardStatementFile').click();});
   $('#cardStatementFile').addEventListener('change',async(event)=>{const file=event.target.files?.[0];if(!file)return;try{await importCardStatement(file);}catch(error){showToast(error.message||'Não foi possível importar esta fatura.');}finally{event.target.value='';}});
