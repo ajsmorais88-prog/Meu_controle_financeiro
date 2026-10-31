@@ -134,12 +134,12 @@
   const cardInvoiceMonth = (dateValue,card) => { const [year,month,day]=String(dateValue).slice(0,10).split('-').map(Number); return monthKey(new Date(year,month-1+(day>cardClosingDay(card)?1:0),1)); };
   function cardInstallmentAmount(transaction,index){const cents=Math.round((Number(transaction.amount)||0)*100);if(transaction.statementBatchId)return cents/100;const count=Math.min(120,Math.max(1,Number(transaction.installments)||1));const base=Math.floor(cents/count),extra=cents%count;return(base+(index<=extra?1:0))/100;}
   function isCardInvoicePayment(transaction){
-    if(!transaction||transaction.type!=='income')return false;
+    if(!transaction)return false;
     const normalize=value=>String(value||'').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').toLocaleUpperCase('pt-BR');
-    const operationType=normalize(transaction.operationType).replace(/[^A-Z0-9]+/g,'_');
-    if(/PAGAMENTO(?:_FATURA)?|PAYMENT(?:_INVOICE)?/.test(operationType))return true;
+    const operationType=normalize(transaction.operationType);
+    if(operationType.includes('PAGAMENTO')||operationType.includes('PAYMENT'))return true;
     const text=normalize([transaction.description,transaction.descriptionRaw,transaction.category].filter(Boolean).join(' '));
-    return /\\b(PAGAMENTO|PAGTO|PGTO|PAG)\\b.*\\b(FATURA|CARTAO|CREDITO|RECEBIDO)\\b|\\b(FATURA|CARTAO|CREDITO)\\b.*\\b(PAGAMENTO|PAGTO|PGTO|PAG)\\b/.test(text);
+    return ['PAGAMENTO RECEBIDO','PAYMENT RECEIVED','CREDIT CARD PAYMENT','PAGAMENTO DE FATURA','PAGAMENTO DA FATURA','PAGAMENTO FATURA','PAGAMENTO DO CARTAO','PAGAMENTO CARTAO','PAGTO FATURA','PGTO FATURA'].some(phrase=>text.includes(phrase));
   }
   function cardPaymentSchedule(transaction,card){
     const count=Math.min(120,Math.max(1,Number(transaction.installments)||1));
