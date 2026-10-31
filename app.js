@@ -245,6 +245,32 @@
   function transactionBankAccountId(transaction){return String(transaction.bankAccountId||bankAccounts[0]?.id||'main');}
   function bankAccountOptionLabel(account){const bank=String(account.bankName||account.name||'Conta bancária').replace(/\s*·\s*MeuPluggy$/,'').trim();const type=String(account.accountType||'').toUpperCase();const typeLabel=type==='CHECKING_ACCOUNT'?'Conta corrente':type==='SAVINGS_ACCOUNT'?'Poupança':type?type.replaceAll('_',' ').toLocaleLowerCase('pt-BR'):'';const number=String(account.accountNumber||'').replace(/\D/g,'');const suffix=number?` · final ${number.slice(-4)}`:'';return `${bank}${typeLabel?` · ${typeLabel}`:''}${suffix}`;}
   function renderBankAccountOptions(){const select=$('#bankAccountSelect');if(!select)return;const activeAccounts=bankAccounts.filter(account=>!account.excluded);select.replaceChildren(...(activeAccounts.length?activeAccounts.map(account=>new Option(bankAccountOptionLabel(account),String(account.id))):[new Option('Nenhuma conta cadastrada','')]));select.value=activeAccounts.some(account=>String(account.id)===String(selectedBankAccountId))?String(selectedBankAccountId):'';const remove=$('#deleteBankAccount');if(remove)remove.disabled=!activeAccounts.some(account=>String(account.id)===String(selectedBankAccountId));}
+  let overviewBankAccountId=String(bankAccounts[0]?.id||'');
+  function renderOverviewBankSummary(){
+    const select=$('#overviewBankSelect');if(!select)return;
+    const activeAccounts=bankAccounts.filter(account=>!account.excluded);
+    if(!activeAccounts.some(account=>String(account.id)===overviewBankAccountId))overviewBankAccountId=String(activeAccounts[0]?.id||'');
+    select.replaceChildren(...(activeAccounts.length?activeAccounts.map(account=>new Option(bankAccountOptionLabel(account),String(account.id))):[new Option('Nenhuma conta cadastrada','')]));
+    select.value=overviewBankAccountId;select.disabled=!activeAccounts.length;
+    const account=activeAccounts.find(item=>String(item.id)===overviewBankAccountId);
+    if(!account){$('#incomeValue').textContent=money(0);$('#expenseValue').textContent=money(0);$('#balanceValue').textContent=money(0);$('#overviewIncomeCaption').textContent='Nenhuma conta cadastrada';$('#overviewExpenseCaption').textContent='Nenhuma conta cadastrada';$('#overviewBalanceCaption').textContent='Cadastre ou sincronize uma conta bancária';return;}
+    const selectedMonth=monthKey(new Date(today.getFullYear(),today.getMonth()+monthOffset,1));
+    const accountTransactions=transactions.filter(t=>!t.statementBatchId&&t.paymentMethod!=='cartao'&&!t.cardId&&transactionBankAccountId(t)===overviewBankAccountId);
+    const monthTransactions=accountTransactions.filter(t=>String(t.date||'').slice(0,7)===selectedMonth);
+    const income=monthTransactions.filter(t=>t.type==='income').reduce((sum,t)=>sum+Number(t.amount||0),0);
+    const expense=monthTransactions.filter(t=>t.type==='expense').reduce((sum,t)=>sum+Number(t.amount||0),0);
+    const [year,month]=selectedMonth.split('-').map(Number),monthDate=new Date(year,month-1,1);
+    const previousMonth=monthKey(new Date(year,month-2,1));
+    const previousBalance=getBankClosingBalance(previousMonth,accountTransactions,overviewBankAccountId);
+    const override=bankBalanceOverride(overviewBankAccountId,selectedMonth);
+    const pluggyBalance=account.source==='MeuPluggy'&&Number.isFinite(Number(account.balance))?Number(account.balance):null;
+    const balance=pluggyBalance!==null?pluggyBalance:(override!==null?override:previousBalance+income-expense);
+    $('#incomeValue').textContent=money(income);$('#expenseValue').textContent=money(expense);$('#balanceValue').textContent=money(balance);
+    const monthLabel=new Intl.DateTimeFormat('pt-BR',{month:'long',year:'numeric'}).format(monthDate);
+    $('#overviewIncomeCaption').textContent=`Total recebido · ${monthLabel}`;
+    $('#overviewExpenseCaption').textContent=`Total pago ou registrado · ${monthLabel}`;
+    $('#overviewBalanceCaption').textContent=pluggyBalance!==null?`${account.name} · Saldo atual informado pelo Pluggy`:`${account.name} · Saldo atual calculado`;
+  }
   function getBankClosingBalance(targetMonth,bankTransactions,accountId=selectedBankAccountId){const known=bankBalanceOverride(accountId,targetMonth);if(known!==null)return known;const prefix=`${accountId}::`;const overrides=Object.entries(bankBalanceOverrides).map(([key,value])=>key.startsWith(prefix)?[key.slice(prefix.length),value]:String(accountId)===String(bankAccounts[0]?.id)&&/^\d{4}-\d{2}$/.test(key)?[key,value]:null).filter(entry=>entry&&entry[0]<=targetMonth).sort((a,b)=>a[0].localeCompare(b[0]));const [year,month]=targetMonth.split('-').map(Number),cutoff=new Date(year,month,1);if(!overrides.length)return sumBankTransactions(bankTransactions,null,cutoff);const [baseMonth,baseValue]=overrides[overrides.length-1],[baseYear,baseMonthNumber]=baseMonth.split('-').map(Number);return(Number(baseValue)||0)+sumBankTransactions(bankTransactions,new Date(baseYear,baseMonthNumber,1),cutoff);}
   function renderAllTransactions(){
     const selectedMonth=$('#transactionsMonthFilter').value||monthKey(today);
@@ -263,12 +289,6 @@
     const selectedAccountBalance=pluggyBalance!==null?pluggyBalance:(selectedBalance!==null?selectedBalance:previousMonthBalance+income-expense);
     $('#bankAccountBalance').textContent=money(selectedAccountBalance);
     $('#bankCurrentBalanceCaption').textContent=pluggyBalance!==null?'Saldo atual informado pelo Pluggy':'Saldo atual da conta selecionada';
-    $('#overviewOpeningBalance').textContent=money(previousMonthBalance);
-    $('#incomeValue').textContent=money(income);
-    $('#expenseValue').textContent=money(expense);
-    $('#balanceValue').textContent=money(selectedAccountBalance);
-    const overviewAccount=bankAccounts.find(account=>String(account.id)===String(selectedBankAccountId));
-    $('#overviewBalanceCaption').textContent=`${overviewAccount?.name||'Conta principal'} · Mesmo saldo atual das transações bancárias`;
     $('#allTransactionsMonthLabel').textContent=`${bankAccounts.find(item=>String(item.id)===String(selectedBankAccountId))?.name||'Conta'} · ${new Intl.DateTimeFormat('pt-BR',{month:'long',year:'numeric'}).format(monthDate)}`;
     $('#allTransactionsIncome').textContent=money(income);
     $('#allTransactionsExpense').textContent=money(expense);
@@ -292,6 +312,7 @@
       const remove=document.createElement('button');remove.type='button';remove.className='row-action row-delete';remove.textContent='Apagar';remove.setAttribute('aria-label',`Apagar ${transaction.description||'transação'}`);remove.addEventListener('click',()=>deleteTransaction(transaction.id));
       actions.append(edit,remove);row.append(icon,details,amount,actions);list.append(row);
     }
+    renderOverviewBankSummary();
   }
   function renderMonthlyWeeklyChart(){
     const chart=$('#monthlyWeeklyChart');const empty=$('#monthlyWeeklyEmpty');chart.replaceChildren();empty.hidden=true;
@@ -554,6 +575,7 @@
   $('#overviewTab').addEventListener('click',()=>selectView('overview'));$('#transactionsTab').addEventListener('click',()=>selectView('transactions'));$('#fixedTab').addEventListener('click',()=>selectView('fixed'));$('#cardsTab').addEventListener('click',()=>selectView('cards'));$('#investmentsTab').addEventListener('click',()=>selectView('investments'));$('#reportsTab').addEventListener('click',()=>selectView('reports'));$('#connectionsTab').addEventListener('click',()=>{selectView('connections');loadBrokerageConnectors();loadConnectedBrokerages();if(sessionInfo.isAdmin)loadMyPluggyStatus();});
   $('#importCardStatement').addEventListener('click',()=>{if(!cards.length){showToast('Cadastre um cartão antes de importar a fatura.');return;}if(!$('#statementCardId').value){showToast('Selecione o cartão que recebeu esta fatura.');return;}$('#cardStatementFile').click();});
   $('#cardStatementFile').addEventListener('change',async(event)=>{const file=event.target.files?.[0];if(!file)return;try{await importCardStatement(file);}catch(error){showToast(error.message||'Não foi possível importar esta fatura.');}finally{event.target.value='';}});
+  $('#overviewBankSelect').addEventListener('change',event=>{overviewBankAccountId=event.currentTarget.value;renderOverviewBankSummary();});
   $('#transactionsMonthFilter').value=monthKey(today);$('#transactionsMonthFilter').addEventListener('change',event=>{const [year,month]=event.currentTarget.value.split('-').map(Number);monthOffset=(year-today.getFullYear())*12+(month-1-today.getMonth());render();});$('#bankAccountSelect').addEventListener('change',event=>{selectedBankAccountId=event.currentTarget.value;localStorage.setItem(BANK_SELECTED_ACCOUNT_KEY,selectedBankAccountId);renderAllTransactions();});$('#addBankAccount').addEventListener('click',()=>{const name=prompt('Informe o nome do banco (ex.: Bradesco, Itaú, Mercado Pago):');if(!name||!name.trim())return;const normalized=name.trim();if(bankAccounts.some(item=>String(item.bankName||item.name).toLocaleLowerCase('pt-BR')===normalized.toLocaleLowerCase('pt-BR')&&!item.excluded)){showToast('Já existe uma conta com esse banco.');return;}const id=crypto.randomUUID?crypto.randomUUID():`bank-${Date.now()}-${Math.random()}`;bankAccounts.push({id,name:normalized,bankName:normalized});selectedBankAccountId=id;localStorage.setItem(BANK_ACCOUNTS_KEY,JSON.stringify(bankAccounts));localStorage.setItem(BANK_SELECTED_ACCOUNT_KEY,id);renderAllTransactions();showToast('Conta bancária adicionada. Importe o extrato dela.');});
   $('#deleteBankAccount').addEventListener('click',async()=>{const account=bankAccounts.find(item=>!item.excluded&&String(item.id)===String(selectedBankAccountId));if(!account)return;const belongsToBank= item=>!item.cardId&&item.paymentMethod!=='cartao'&&transactionBankAccountId(item)===String(account.id);const linked=transactions.filter(belongsToBank);if(!confirm(`Excluir ${bankAccountOptionLabel(account)} e remover ${linked.length} transação(ões) vinculada(s)?`))return;const excluded=(()=>{try{const value=JSON.parse(localStorage.getItem(BANK_EXCLUDED_ACCOUNTS_KEY)||'[]');return Array.isArray(value)?value:[];}catch{return[];}})();if(account.source==='MeuPluggy'&&account.pluggyAccountId&&!excluded.includes(String(account.pluggyAccountId)))excluded.push(String(account.pluggyAccountId));bankAccounts=bankAccounts.filter(item=>String(item.id)!==String(account.id));transactions=transactions.filter(item=>!belongsToBank(item));for(const key of Object.keys(bankBalanceOverrides))if(key.startsWith(`${account.id}::`))delete bankBalanceOverrides[key];selectedBankAccountId=bankAccounts.find(item=>!item.excluded)?.id||'';localStorage.setItem(BANK_ACCOUNTS_KEY,JSON.stringify(bankAccounts));localStorage.setItem(BANK_EXCLUDED_ACCOUNTS_KEY,JSON.stringify(excluded));localStorage.setItem(TX_KEY,JSON.stringify(transactions));localStorage.setItem(BANK_BALANCE_KEY,JSON.stringify(bankBalanceOverrides));localStorage.setItem(BANK_SELECTED_ACCOUNT_KEY,String(selectedBankAccountId));render();renderAllTransactions();showToast('Conta excluída da lista e transações vinculadas removidas.');});
   $('#fixedCostMonthFilter').value=monthKey(today);$('#fixedCostMonthFilter').addEventListener('change',renderFixedCosts);$('#fixedPaidYear').addEventListener('change',renderFixedAnnualChart);
