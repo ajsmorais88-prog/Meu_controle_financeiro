@@ -261,18 +261,30 @@
     const income=monthTransactions.filter(t=>t.type==='income').reduce((sum,t)=>sum+Number(t.amount||0),0);
     const expense=monthTransactions.filter(t=>t.type==='expense').reduce((sum,t)=>sum+Number(t.amount||0),0);
     const [year,month]=selectedMonth.split('-').map(Number),monthDate=new Date(year,month-1,1);
-    const previousMonth=monthKey(new Date(year,month-2,1));
-    const previousBalance=getBankClosingBalance(previousMonth,accountTransactions,overviewBankAccountId);
-    const override=bankBalanceOverride(overviewBankAccountId,selectedMonth);
-    const pluggyBalance=account.source==='MeuPluggy'&&Number.isFinite(Number(account.balance))?Number(account.balance):null;
-    const balance=pluggyBalance!==null?pluggyBalance:(override!==null?override:previousBalance+income-expense);
+    const balance=bankAccountBalanceForMonth(account,selectedMonth,accountTransactions,income,expense);
     $('#incomeValue').textContent=money(income);$('#expenseValue').textContent=money(expense);$('#balanceValue').textContent=money(balance);
     const monthLabel=new Intl.DateTimeFormat('pt-BR',{month:'long',year:'numeric'}).format(monthDate);
+    const pluggyBalance=account.source==='MeuPluggy'&&Number.isFinite(Number(account.balance))?Number(account.balance):null;
     $('#overviewIncomeCaption').textContent=`Total recebido · ${monthLabel}`;
     $('#overviewExpenseCaption').textContent=`Total pago ou registrado · ${monthLabel}`;
-    $('#overviewBalanceCaption').textContent=pluggyBalance!==null?`${account.name} · Saldo atual informado pelo Pluggy`:`${account.name} · Saldo atual calculado`;
+    $('#overviewBalanceCaption').textContent=pluggyBalance!==null?`${account.name} · Saldo em ${monthLabel} baseado na posição Pluggy`:`${account.name} · Saldo de fechamento em ${monthLabel}`;
   }
   function getBankClosingBalance(targetMonth,bankTransactions,accountId=selectedBankAccountId){const known=bankBalanceOverride(accountId,targetMonth);if(known!==null)return known;const prefix=`${accountId}::`;const overrides=Object.entries(bankBalanceOverrides).map(([key,value])=>key.startsWith(prefix)?[key.slice(prefix.length),value]:String(accountId)===String(bankAccounts[0]?.id)&&/^\d{4}-\d{2}$/.test(key)?[key,value]:null).filter(entry=>entry&&entry[0]<=targetMonth).sort((a,b)=>a[0].localeCompare(b[0]));const [year,month]=targetMonth.split('-').map(Number),cutoff=new Date(year,month,1);if(!overrides.length)return sumBankTransactions(bankTransactions,null,cutoff);const [baseMonth,baseValue]=overrides[overrides.length-1],[baseYear,baseMonthNumber]=baseMonth.split('-').map(Number);return(Number(baseValue)||0)+sumBankTransactions(bankTransactions,new Date(baseYear,baseMonthNumber,1),cutoff);}
+  function bankAccountBalanceForMonth(account,targetMonth,accountTransactions,income,expense){
+    const pluggyBalance=account?.source==='MeuPluggy'&&Number.isFinite(Number(account.balance))?Number(account.balance):null;
+    if(pluggyBalance!==null){
+      const [year,month]=targetMonth.split('-').map(Number),periodStart=new Date(year,month-1,1),periodEnd=new Date(year,month,1);
+      const rawSnapshot=account.balanceUpdatedAt||account.updatedAt||today;const parsedSnapshot=new Date(rawSnapshot);
+      const snapshot=Number.isNaN(parsedSnapshot.getTime())?new Date(today):parsedSnapshot;snapshot.setHours(0,0,0,0);
+      const afterSnapshot=new Date(snapshot);afterSnapshot.setDate(afterSnapshot.getDate()+1);
+      const snapshotMonth=new Date(snapshot.getFullYear(),snapshot.getMonth(),1);
+      return periodStart>=snapshotMonth?pluggyBalance+sumBankTransactions(accountTransactions,afterSnapshot,periodEnd):pluggyBalance-sumBankTransactions(accountTransactions,periodEnd,afterSnapshot);
+    }
+    const override=bankBalanceOverride(account?.id,targetMonth);if(override!==null)return override;
+    const [year,month]=targetMonth.split('-').map(Number),previousMonth=monthKey(new Date(year,month-2,1));
+    const previousBalance=getBankClosingBalance(previousMonth,accountTransactions,account?.id);
+    return previousBalance+(Number(income)||0)-(Number(expense)||0);
+  }
   function renderAllTransactions(){
     const selectedMonth=$('#transactionsMonthFilter').value||monthKey(today);
     renderBankAccountOptions();const accountTransactions=transactions.filter(t=>!t.statementBatchId&&t.paymentMethod!=='cartao'&&!t.cardId&&transactionBankAccountId(t)===String(selectedBankAccountId));
@@ -282,14 +294,11 @@
     const monthDate=new Date(Number(selectedMonth.slice(0,4)),Number(selectedMonth.slice(5,7))-1,1);
     const bankTransactions=accountTransactions;
     updateOpeningBalanceFromStatement(bankTransactions);
-    const previousMonthKey=monthKey(new Date(monthDate.getFullYear(),monthDate.getMonth()-1,1));
-    const previousMonthBalance=getBankClosingBalance(previousMonthKey,bankTransactions,selectedBankAccountId);
-    const selectedBalance=bankBalanceOverride(selectedBankAccountId,selectedMonth);const bankBalance=selectedBalance!==null?selectedBalance:previousMonthBalance+income-expense;
     const selectedBankAccount=bankAccounts.find(account=>String(account.id)===String(selectedBankAccountId));
     const pluggyBalance=selectedBankAccount?.source==='MeuPluggy'&&Number.isFinite(Number(selectedBankAccount.balance))?Number(selectedBankAccount.balance):null;
-    const selectedAccountBalance=pluggyBalance!==null?pluggyBalance:(selectedBalance!==null?selectedBalance:previousMonthBalance+income-expense);
+    const selectedAccountBalance=bankAccountBalanceForMonth(selectedBankAccount,selectedMonth,bankTransactions,income,expense);
     $('#bankAccountBalance').textContent=money(selectedAccountBalance);
-    $('#bankCurrentBalanceCaption').textContent=pluggyBalance!==null?'Saldo atual informado pelo Pluggy':'Saldo atual da conta selecionada';
+    $('#bankCurrentBalanceCaption').textContent=pluggyBalance!==null?`Saldo de fechamento em ${new Intl.DateTimeFormat('pt-BR',{month:'long',year:'numeric'}).format(monthDate)} calculado pela posição Pluggy`:'Saldo de fechamento da conta selecionada';
     $('#allTransactionsMonthLabel').textContent=`${bankAccounts.find(item=>String(item.id)===String(selectedBankAccountId))?.name||'Conta'} · ${new Intl.DateTimeFormat('pt-BR',{month:'long',year:'numeric'}).format(monthDate)}`;
     $('#allTransactionsIncome').textContent=money(income);
     $('#allTransactionsExpense').textContent=money(expense);
