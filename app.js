@@ -140,6 +140,8 @@
     if(transaction.source==='MeuPluggy'){
       const matchedBill=transaction.billId&&Array.isArray(card?.pluggyBills)?card.pluggyBills.find(item=>String(item.id)===String(transaction.billId)):null;
       statementMonth=matchedBill?.monthKey||'';
+    }else if(!transaction.statementBatchId){
+      statementMonth='';
     }
     if(statementMonth&&(transaction.paymentMethod==='cartao'||transaction.cardId)){
       const [year,month]=String(statementMonth).split('-').map(Number);
