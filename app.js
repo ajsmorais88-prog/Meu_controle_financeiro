@@ -135,7 +135,7 @@
   function cardInstallmentAmount(transaction,index){const cents=Math.round((Number(transaction.amount)||0)*100);if(transaction.statementBatchId)return cents/100;const count=Math.min(120,Math.max(1,Number(transaction.installments)||1));const base=Math.floor(cents/count),extra=cents%count;return(base+(index<=extra?1:0))/100;}
   function isCardInvoicePayment(transaction){
     if(!transaction)return false;
-    const normalize=value=>String(value||'').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').toLocaleUpperCase('pt-BR');
+    const normalize=value=>Array.from(String(value||'').normalize('NFD')).filter(char=>{const code=char.codePointAt(0);return code<768||code>879;}).join('').toLocaleUpperCase('pt-BR');
     const operationType=normalize(transaction.operationType);
     if(operationType.includes('PAGAMENTO')||operationType.includes('PAYMENT'))return true;
     const text=normalize([transaction.description,transaction.descriptionRaw,transaction.category].filter(Boolean).join(' '));
