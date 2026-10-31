@@ -2163,7 +2163,12 @@ async function main() {
               const account = await fetchCryptoExchangeAccount(provider, credentials);
               if (!account.configured) { send(res, 503, { configured: false, error: 'Cadastre as credenciais somente leitura da ' + spec.name + ' nesta conta.' }); return; }
               send(res, 200, account);
-            } catch (error) { send(res, error.status || 502, { error: error.message || 'Não foi possível consultar a ' + spec.name + '.' }); }
+            } catch (error) {
+              // HTTP 401 da corretora é uma falha de autenticação upstream,
+              // não significa que a sessão do usuário no Minhas Finanças expirou.
+              const status = error.status === 401 ? 502 : (error.status || 502);
+              send(res, status, { error: error.message || 'Não foi possível consultar a ' + spec.name + '.' });
+            }
             return;
           }
           send(res, 405, { error: 'Método não permitido.' }); return;
@@ -2195,7 +2200,11 @@ async function main() {
             const account = await signedBinanceAccount(credentials.apiKey, credentials.apiSecret);
             if (!account.configured) { send(res, 503, { configured: false, error: 'Cadastre uma chave Binance com permissão somente de leitura nesta conta.' }); return; }
             send(res, 200, account);
-          } catch (error) { send(res, error.status || 502, { error: error.message || 'Não foi possível consultar a Binance.' }); }
+          } catch (error) {
+            // Evita que uma rejeição de chave da Binance force reload e aparente logout.
+            const status = error.status === 401 ? 502 : (error.status || 502);
+            send(res, status, { error: error.message || 'Não foi possível consultar a Binance.' });
+          }
           return;
         }
         if (req.method === 'GET' && pathname === '/api/brokerages/connectors') {
