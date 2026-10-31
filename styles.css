@@ -265,3 +265,6 @@ dialog{border:1px solid #dce7ed}
 .plan-editor-interactive .budget-input button{min-width:82px;align-self:stretch;margin:4px;border:0;border-radius:9px;background:linear-gradient(135deg,#e8f4ef,#e3f1ed);color:#176b5b;font:700 12px var(--font);transition:background .18s,color .18s,transform .18s}
 .plan-editor-interactive .budget-input button:hover{background:linear-gradient(135deg,#176b5b,#12837d);color:#fff;transform:translateY(-1px)}
 @media(max-width:700px){.plan-editor-interactive .budget-input{min-width:0;width:100%}}
+
+/* A tela de conexões ocupa a largura disponível após remover o card de corretoras. */
+#connectionsView .connection-grid{grid-template-columns:minmax(0,1fr)}
