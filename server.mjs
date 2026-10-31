@@ -859,6 +859,17 @@ async function listPluggyTransactions(accountId) {
   return all;
 }
 
+async function listPluggyBills(accountId) {
+  const bills = [];
+  for (let page = 1; page <= 12; page++) {
+    const data = await pluggyRequest(`/bills?accountId=${encodeURIComponent(accountId)}&page=${page}&pageSize=500`);
+    bills.push(...(Array.isArray(data.results) ? data.results : []));
+    const totalPages = Number(data.totalPages) || 1;
+    if (page >= totalPages || !data.results?.length) break;
+  }
+  return bills;
+}
+
 
 const MYPLUGGY_ITEMS_KEY = 'mypluggy_items';
 const MYPLUGGY_TRANSACTIONS_KEY = 'meu-controle-financeiro-transactions-v1';
@@ -917,11 +928,18 @@ async function syncMeuPluggyIntoUserData(userId) {
       }
       const accountData = await pluggyRequest(`/accounts?itemId=${encodeURIComponent(savedItem.itemId)}`);
       const accounts = Array.isArray(accountData.results) ? accountData.results : Array.isArray(accountData) ? accountData : [];
-      const transactionsByAccount = await Promise.all(accounts.map(async account => ({ account, transactions: await listPluggyTransactions(account.id) })));
+      const transactionsByAccount = await Promise.all(accounts.map(async account => {
+        const isCard = String(account.subtype || '').toUpperCase() === 'CREDIT_CARD' || Boolean(account.creditData);
+        const [transactions, bills] = await Promise.all([
+          listPluggyTransactions(account.id),
+          isCard ? listPluggyBills(account.id).catch(() => []) : Promise.resolve([])
+        ]);
+        return { account, transactions, bills };
+      }));
       const bankAccounts = [];
       const cards = [];
       const transactions = [];
-      for (const { account, transactions: entries } of transactionsByAccount) {
+      for (const { account, transactions: entries, bills } of transactionsByAccount) {
         const isCard = String(account.subtype || '').toUpperCase() === 'CREDIT_CARD' || Boolean(account.creditData);
         if (isCard) {
           const credit = account.creditData || {};
@@ -929,6 +947,15 @@ async function syncMeuPluggyIntoUserData(userId) {
           const closeMatch = String(credit.balanceCloseDate || '').match(/-(\d{2})$/);
           const dueMatch = String(credit.balanceDueDate || '').match(/-(\d{2})$/);
           const pluggyAccountId = String(account.id);
+          const pluggyBills = (bills || []).map(bill => {
+            const dueDate = String(bill.dueDate || '').slice(0, 10);
+            const monthKey = dueDate.slice(0, 7);
+            const totalAmount = Number(bill.totalAmount);
+            return bill.id && /^\d{4}-\d{2}$/.test(monthKey) && Number.isFinite(totalAmount)
+              ? { id: String(bill.id), monthKey, dueDate, closingDate: String(bill.billClosingDate || '').slice(0, 10), totalAmount, currencyCode: String(bill.totalAmountCurrencyCode || 'BRL') }
+              : null;
+          }).filter(Boolean);
+          const billMonthById = new Map(pluggyBills.map(bill => [bill.id, bill.monthKey]));
           const cardName = String(account.name || 'Cartão MeuPluggy').slice(0, 70) + (cardNumber ? ` · ${cardNumber.slice(-4)}` : '');
           cards.push({
             id: `pluggy-card-${pluggyAccountId}`,
@@ -938,13 +965,17 @@ async function syncMeuPluggyIntoUserData(userId) {
             dueDay: dueMatch ? Number(dueMatch[1]) : 5,
             source: 'MeuPluggy',
             pluggyAccountId,
-            lastFour: cardNumber.slice(-4)
+            lastFour: cardNumber.slice(-4),
+            pluggyBills
           });
           for (const entry of entries) {
             const amount = Math.abs(Number(entry.amount));
             const date = String(entry.date || entry.createdAt || '').slice(0, 10);
             if (!Number.isFinite(amount) || amount <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
             const metadata = entry.creditCardMetadata || {};
+            const billId = String(metadata.billId || entry.billId || '');
+            const billForecastDate = String(metadata.billForecastDate || entry.billForecastDate || '').slice(0, 10);
+            const statementMonth = billMonthById.get(billId) || (/^\d{4}-\d{2}/.test(billForecastDate) ? billForecastDate.slice(0, 7) : '');
             const rawType = String(entry.type || '').toUpperCase();
             const type = Number(entry.amount) < 0 ? 'income' : 'expense';
             const category = typeof entry.category === 'string' ? entry.category : entry.category?.description || entry.category?.name || entry.categoryDescription || entry.categoryName || 'Cartão de crédito';
@@ -965,7 +996,11 @@ async function syncMeuPluggyIntoUserData(userId) {
               importedInstallmentNumber: Number(metadata.installmentNumber) || null,
               importedInstallmentCount: Number(metadata.totalInstallments) || null,
               purchaseDate: String(metadata.purchaseDate || '').slice(0, 10) || undefined,
-              lastFour: cardNumber.slice(-4)
+              lastFour: cardNumber.slice(-4),
+              ...(billId ? { billId } : {}),
+              ...(billForecastDate ? { billForecastDate } : {}),
+              ...(statementMonth ? { statementMonth } : {}),
+              pluggyStatus: String(entry.status || '')
             });
           }
           continue;
