@@ -705,7 +705,7 @@
       if(response.status===401){location.reload();return;}
       if(!response.ok)throw new Error(data.error||'Não foi possível verificar MeuPluggy.');
       status.textContent=data.message||'';
-      $('#connectMyPluggy').textContent=data.connected?'Adicionar outro ItemId':'Vincular ItemId';
+      $('#connectMyPluggy').textContent='Adicionar Item ID';
       $('#syncMyPluggy').hidden=!data.connected;
       $('#syncMyPluggy').disabled=false;
       const linkedItems=$('#myPluggyLinkedItems');linkedItems.replaceChildren();
@@ -740,7 +740,7 @@
   }
   async function connectMyPluggy(){
     const button=$('#connectMyPluggy'),status=$('#myPluggyStatus'),itemId=$('#myPluggyItemId').value.trim();
-    if(!itemId){status.textContent='Informe o itemId da conexão MeuPluggy criada no painel Pluggy.';$('#myPluggyItemId').focus();return;}
+    if(!itemId){status.textContent='Informe o Item ID da conexão MeuPluggy criada no painel Pluggy.';$('#myPluggyItemId').focus();return;}
     button.disabled=true;status.textContent='Validando a conexão pessoal na Pluggy…';
     try{
       const response=await fetch('/api/mypluggy/item',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({itemId}),cache:'no-store'});
@@ -748,7 +748,7 @@
       if(response.status===401){location.reload();return;}
       if(!response.ok)throw new Error(data.error||'Não foi possível vincular a conexão MeuPluggy.');
       $('#myPluggyItemId').value='';
-      status.textContent='ItemId MeuPluggy vinculado. Importando as conexões…';
+      status.textContent='Item ID MeuPluggy vinculado. Importando as conexões…';
       await loadMyPluggyStatus();
       await syncMyPluggy();
     }catch(error){status.textContent=error.message;showToast(error.message);}
