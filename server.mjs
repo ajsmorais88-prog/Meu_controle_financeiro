@@ -947,7 +947,7 @@ async function syncMeuPluggyIntoUserData(userId) {
             if (!Number.isFinite(amount) || amount <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
             const metadata = entry.creditCardMetadata || {};
             const rawType = String(entry.type || '').toUpperCase();
-            const type = Number(entry.amount) < 0 || rawType.includes('CREDIT') || rawType === 'INCOME' ? 'income' : 'expense';
+            const type = Number(entry.amount) < 0 ? 'income' : 'expense';
             const category = typeof entry.category === 'string' ? entry.category : entry.category?.description || entry.category?.name || entry.categoryDescription || entry.categoryName || 'Cartão de crédito';
             transactions.push({
               id: `mypluggy-card-${pluggyAccountId}-${entry.id}`,
