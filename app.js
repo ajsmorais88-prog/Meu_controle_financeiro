@@ -240,7 +240,7 @@
     renderInvestmentAllocation();
     renderScheduledFixedCosts();
   }
-  function sumBankTransactions(bankTransactions,from,to){return bankTransactions.filter(t=>{const date=parseDate(t.date);return (!from||date>=from)&&(!to||date<to);}).reduce((balance,t)=>balance+(t.type==='income'?1:-1)*(Number(t.amount)||0),0);}
+  function sumBankTransactions(bankTransactions,from,to){return bankTransactions.filter(t=>{const date=parseDate(t.date);return (!from||date>=from)&&(!to||date<to);}).reduce((balance,t)=>balance+(t.type==='income'?1:-1)*Math.abs(Number(t.amount)||0),0);}
   function bankBalanceKey(accountId,month){return `${accountId}::${month}`;}
   function bankBalanceOverride(accountId,month){const key=bankBalanceKey(accountId,month);if(Object.prototype.hasOwnProperty.call(bankBalanceOverrides,key))return Number(bankBalanceOverrides[key])||0;if(String(accountId)===String(bankAccounts[0]?.id)&&Object.prototype.hasOwnProperty.call(bankBalanceOverrides,month))return Number(bankBalanceOverrides[month])||0;return null;}
   function transactionBankAccountId(transaction){return String(transaction.bankAccountId||bankAccounts[0]?.id||'main');}
@@ -258,8 +258,8 @@
     const selectedMonth=monthKey(new Date(today.getFullYear(),today.getMonth()+monthOffset,1));
     const accountTransactions=transactions.filter(t=>!t.statementBatchId&&t.paymentMethod!=='cartao'&&!t.cardId&&transactionBankAccountId(t)===overviewBankAccountId);
     const monthTransactions=accountTransactions.filter(t=>String(t.date||'').slice(0,7)===selectedMonth);
-    const income=monthTransactions.filter(t=>t.type==='income').reduce((sum,t)=>sum+Number(t.amount||0),0);
-    const expense=monthTransactions.filter(t=>t.type==='expense').reduce((sum,t)=>sum+Number(t.amount||0),0);
+    const income=monthTransactions.filter(t=>t.type==='income').reduce((sum,t)=>sum+Math.abs(Number(t.amount)||0),0);
+    const expense=monthTransactions.filter(t=>t.type==='expense').reduce((sum,t)=>sum+Math.abs(Number(t.amount)||0),0);
     const [year,month]=selectedMonth.split('-').map(Number),monthDate=new Date(year,month-1,1);
     const balance=bankAccountBalanceForMonth(account,selectedMonth,accountTransactions,income,expense);
     $('#incomeValue').textContent=money(income);$('#expenseValue').textContent=money(expense);$('#balanceValue').textContent=money(balance);
@@ -295,11 +295,23 @@
     const bankTransactions=accountTransactions;
     updateOpeningBalanceFromStatement(bankTransactions);
     const selectedBankAccount=bankAccounts.find(account=>String(account.id)===String(selectedBankAccountId));
-    const pluggyBalance=selectedBankAccount?.source==='MeuPluggy'&&Number.isFinite(Number(selectedBankAccount.balance))?Number(selectedBankAccount.balance):null;
+    const previousMonthKey=monthKey(new Date(monthDate.getFullYear(),monthDate.getMonth()-1,1));
+    const previousMonthTransactions=bankTransactions.filter(t=>String(t.date||'').slice(0,7)===previousMonthKey);
+    const previousIncome=previousMonthTransactions.filter(t=>t.type==='income').reduce((sum,t)=>sum+Math.abs(Number(t.amount)||0),0);
+    const previousExpense=previousMonthTransactions.filter(t=>t.type==='expense').reduce((sum,t)=>sum+Math.abs(Number(t.amount)||0),0);
+    const openingBalance=bankAccountBalanceForMonth(selectedBankAccount,previousMonthKey,bankTransactions,previousIncome,previousExpense);
     const selectedAccountBalance=bankAccountBalanceForMonth(selectedBankAccount,selectedMonth,bankTransactions,income,expense);
+    const expectedBalance=openingBalance+income-expense;
+    const reconciliationDifference=selectedAccountBalance-expectedBalance;
+    const monthLabel=new Intl.DateTimeFormat('pt-BR',{month:'long',year:'numeric'}).format(monthDate);
+    const previousMonthLabel=new Intl.DateTimeFormat('pt-BR',{month:'long',year:'numeric'}).format(new Date(monthDate.getFullYear(),monthDate.getMonth()-1,1));
+    $('#bankOpeningBalance').textContent=money(openingBalance);
+    $('#bankOpeningBalanceCaption').textContent=`Fechamento de ${previousMonthLabel}`;
     $('#bankAccountBalance').textContent=money(selectedAccountBalance);
-    $('#bankCurrentBalanceCaption').textContent=pluggyBalance!==null?`Saldo de fechamento em ${new Intl.DateTimeFormat('pt-BR',{month:'long',year:'numeric'}).format(monthDate)} calculado pela posição Pluggy`:'Saldo de fechamento da conta selecionada';
-    $('#allTransactionsMonthLabel').textContent=`${bankAccounts.find(item=>String(item.id)===String(selectedBankAccountId))?.name||'Conta'} · ${new Intl.DateTimeFormat('pt-BR',{month:'long',year:'numeric'}).format(monthDate)}`;
+    const currentMonthKey=monthKey(today);
+    $('#bankBalanceTitle').textContent=selectedMonth===currentMonthKey?'Saldo atual':selectedMonth<currentMonthKey?'Saldo ao fim do mês':'Saldo projetado';
+    $('#bankCurrentBalanceCaption').textContent=Math.abs(reconciliationDifference)<0.01?'Saldo inicial + entradas − saídas':`Diferença de conciliação: ${money(Math.abs(reconciliationDifference))} ${reconciliationDifference>0?'acima':'abaixo'} do saldo calculado`;
+    $('#allTransactionsMonthLabel').textContent=`${selectedBankAccount?.name||'Conta'} · ${monthLabel}`;
     $('#allTransactionsIncome').textContent=money(income);
     $('#allTransactionsExpense').textContent=money(expense);
     const list=$('#allTransactionsList');list.replaceChildren();$('#allTransactionsEmpty').hidden=monthTransactions.length>0;
@@ -998,12 +1010,12 @@
         const firstDate=running.map(item=>String(item.statementBalanceDate)).sort()[0];
         const firstMovement=running.filter(item=>String(item.statementBalanceDate)===firstDate).sort((x,y)=>Number(x.createdAt||0)-Number(y.createdAt||0))[0];
         if(!firstMovement)continue;
-        const reverseMovement=firstMovement.type==='expense'?(Number(firstMovement.amount)||0):-(Number(firstMovement.amount)||0);
+        const reverseMovement=firstMovement.type==='expense'?Math.abs(Number(firstMovement.amount)||0):-Math.abs(Number(firstMovement.amount)||0);
         openingBalance=Number(firstMovement.statementBalance)+reverseMovement;
       }else{
         const closing=monthSnapshots.slice().sort((x,y)=>String(y.statementBalanceDate).localeCompare(String(x.statementBalanceDate)))[0];
         const snapshotDate=String(closing.statementBalanceDate),monthStart=month+'-01';
-        const netThroughSnapshot=imported.filter(item=>String(item.date||'')>=monthStart&&String(item.date||'')<=snapshotDate).reduce((sum,item)=>sum+(item.type==='income'?1:-1)*(Number(item.amount)||0),0);
+        const netThroughSnapshot=imported.filter(item=>String(item.date||'')>=monthStart&&String(item.date||'')<=snapshotDate).reduce((sum,item)=>sum+(item.type==='income'?1:-1)*Math.abs(Number(item.amount)||0),0);
         openingBalance=Number(closing.statementBalance)-netThroughSnapshot;
       }
       if(!Number.isFinite(openingBalance))continue;
