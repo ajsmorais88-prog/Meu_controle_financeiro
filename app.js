@@ -173,10 +173,12 @@
   function scheduledCardTotal(period){return transactions.filter(t=>t.type==='expense'&&(t.paymentMethod==='cartao'||t.cardId)).reduce((sum,t)=>{const card=cards.find(item=>String(item.id)===String(t.cardId));return sum+cardPaymentSchedule(t,card).filter(payment=>payment.monthKey===period).reduce((monthSum,payment)=>monthSum+payment.amount,0);},0);}
   function render() {
     reconcileFixedCostsWithBankTransactions();
-    const periodMode='month';
-    const isMonth=periodMode==='month';
+    const isMonth=true;
     const {monday,sunday}=weekBounds();
     const monthStart=new Date(today.getFullYear(),today.getMonth()+monthOffset,1);
+    const monthSelect=$('#overviewMonthSelect'),selectedMonthKey=monthKey(monthStart),selectedYear=String(monthStart.getFullYear());
+    if(monthSelect.dataset.year!==selectedYear){monthSelect.replaceChildren(...Array.from({length:12},(_,index)=>{const optionDate=new Date(monthStart.getFullYear(),index,1);return new Option(new Intl.DateTimeFormat('pt-BR',{month:'long'}).format(optionDate),monthKey(optionDate));}));monthSelect.dataset.year=selectedYear;}
+    monthSelect.value=selectedMonthKey;$('#overviewYearLabel').textContent=selectedYear;
     const rangeStart=isMonth?monthStart:monday;
     const rangeEnd=isMonth?new Date(monthStart.getFullYear(),monthStart.getMonth()+1,0,23,59,59,999):sunday;
     const fmt=(d)=>new Intl.DateTimeFormat('pt-BR',{day:'2-digit',month:'short'}).format(d).replace('.','');
@@ -844,7 +846,7 @@
   $('#editAllocation').addEventListener('click',()=>{const fields=$('#allocationSettingsFields'),opening=fields.hidden;if(opening){$('#fixedPercentInput').value=String(allocation.fixed);$('#cardPercentInput').value=String(allocation.card);$('#investmentPercentInput').value=String(allocation.investment);fields.hidden=false;$('#editAllocation').textContent='Cancelar';$('#editAllocation').setAttribute('aria-expanded','true');}else{fields.hidden=true;$('#editAllocation').textContent='Editar';$('#editAllocation').setAttribute('aria-expanded','false');}});
   $('#saveIncome').addEventListener('click',()=>{const value=Number($('#monthlyIncome').value);if(!Number.isFinite(value)||value<0){showToast('Informe uma renda mensal válida.');return;}monthlyIncome=value;localStorage.setItem(INCOME_KEY,String(monthlyIncome));render();showToast('Renda mensal salva; limite semanal atualizado.');});
   $('#saveAllocation').addEventListener('click',()=>{const raw={fixed:$('#fixedPercentInput').value.trim(),card:$('#cardPercentInput').value.trim(),investment:$('#investmentPercentInput').value.trim()};const next={fixed:Number(raw.fixed),card:Number(raw.card),investment:Number(raw.investment)};if(Object.values(raw).some(value=>value==='')||Object.values(next).some(value=>!Number.isFinite(value)||value<0||value>100)||Object.values(next).reduce((sum,value)=>sum+value,0)!==100){showToast('Preencha os três percentuais. A soma precisa ser exatamente 100%.');return;}allocation=next;localStorage.setItem(ALLOCATION_KEY,JSON.stringify(allocation));$('#allocationSettingsFields').hidden=true;$('#editAllocation').textContent='Editar';$('#editAllocation').setAttribute('aria-expanded','false');render();showToast('Percentuais salvos e metas atualizadas.');});
-  $('#periodMode').addEventListener('change',render); $('#prevWeek').addEventListener('click',()=>{if($('#periodMode').value==='month')monthOffset--;else weekOffset--;render();}); $('#nextWeek').addEventListener('click',()=>{if($('#periodMode').value==='month')monthOffset=Math.min(monthOffset+1,0);else weekOffset=Math.min(weekOffset+1,0);render();});
+  $('#overviewMonthSelect').addEventListener('change',event=>{const [year,month]=event.currentTarget.value.split('-').map(Number);monthOffset=(year-today.getFullYear())*12+(month-1-today.getMonth());render();}); $('#prevWeek').addEventListener('click',()=>{monthOffset--;render();}); $('#nextWeek').addEventListener('click',()=>{monthOffset++;render();});
   const dialog=$('#transactionDialog');
   $('#newTransaction').addEventListener('click',()=>{editingId=null;const form=$('#transactionForm');form.reset();form.elements.date.value=dateISO(today);updateTransactionCategories(form.elements.type.value);updateCardPicker();$('#dialogEyebrow').textContent='NOVA MOVIMENTAÇÃO';$('#dialogTitle').textContent='Adicionar transação';$('#submitTransaction').textContent='Salvar transação';renderCards();dialog.showModal();});
   $('#closeDialog').addEventListener('click',()=>dialog.close());
