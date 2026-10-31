@@ -23,7 +23,8 @@ const CLIENT_DATA_KEYS = new Set([
   'meu-controle-financeiro-allocation-percentages-v1',
   'meu-controle-financeiro-cards-v1', 'meu-controle-financeiro-fixed-costs-v1',
   'meu-controle-financeiro-investments-v1', 'meu-controle-financeiro-binance-balances-v1',
-  'meu-controle-financeiro-bank-balance-overrides-v1', 'meu-controle-financeiro-notifications-v1'
+  'meu-controle-financeiro-bank-balance-overrides-v1', 'meu-controle-financeiro-bank-accounts-v1',
+  'meu-controle-financeiro-bank-excluded-v1', 'meu-controle-financeiro-notifications-v1'
 ]);
 const DUMMY_PASSWORD_SALT = randomBytes(16);
 let pluggyApiKey = '';
@@ -901,6 +902,7 @@ async function upsertMeuPluggyItem(userId, item) {
 
 const MYPLUGGY_BANK_ACCOUNTS_KEY = 'meu-controle-financeiro-bank-accounts-v1';
 const MYPLUGGY_SELECTED_ACCOUNT_KEY = 'meu-controle-financeiro-bank-selected-account-v1';
+const MYPLUGGY_EXCLUDED_BANK_ACCOUNTS_KEY = 'meu-controle-financeiro-bank-excluded-v1';
 
 async function storedArray(userId, key) {
   const raw = await getUserData(userId, key, '[]');
@@ -1011,6 +1013,9 @@ async function syncMeuPluggyIntoUserData(userId) {
           name: `${String(account.name || account.type || 'Conta').slice(0, 80)} · MeuPluggy`,
           source: 'MeuPluggy',
           pluggyAccountId: String(account.id),
+          bankName: String(account.name || account.type || 'Banco'),
+          accountNumber: String(account.number || ''),
+          accountType: String(account.subtype || account.type || ''),
           balance: Number(account.balance) || 0,
           currencyCode: String(account.currencyCode || 'BRL')
         });
@@ -1057,12 +1062,16 @@ async function syncMeuPluggyIntoUserData(userId) {
   });
   await writeMeuPluggyItems(userId, refreshedItems);
 
-  const accounts = successful.flatMap(result => result.accounts);
+  let excludedBankAccountIds = await getUserData(userId, `browser:${MYPLUGGY_EXCLUDED_BANK_ACCOUNTS_KEY}`, []);
+  if (typeof excludedBankAccountIds === 'string') { try { excludedBankAccountIds = JSON.parse(excludedBankAccountIds); } catch { excludedBankAccountIds = []; } }
+  if (!Array.isArray(excludedBankAccountIds)) excludedBankAccountIds = [];
+  const excludedSet = new Set(excludedBankAccountIds.map(String));
+  const accounts = successful.flatMap(result => result.accounts).filter(account => !excludedSet.has(String(account.pluggyAccountId)));
   const cards = successful.flatMap(result => result.cards);
-  const transactions = successful.flatMap(result => result.transactions);
+  const transactions = successful.flatMap(result => result.transactions).filter(transaction => !excludedSet.has(String(transaction.accountId)));
   const creditAccountIds = new Set(cards.map(card => String(card.pluggyAccountId)));
   const existingTransactions = await storedArray(userId, MYPLUGGY_TRANSACTIONS_KEY);
-  const cleanedTransactions = existingTransactions.filter(transaction => !(creditAccountIds.has(String(transaction.accountId || '')) && String(transaction.externalId || '').startsWith('mypluggy:') && !transaction.cardId));
+  const cleanedTransactions = existingTransactions.filter(transaction => !excludedSet.has(String(transaction.accountId || '')) && !(creditAccountIds.has(String(transaction.accountId || '')) && String(transaction.externalId || '').startsWith('mypluggy:') && !transaction.cardId));
   const transactionIndex = new Map(cleanedTransactions.map((transaction, index) => [String(transaction.externalId || ''), index]).filter(([id]) => id));
   let added = 0, updated = 0;
   for (const transaction of transactions) {
@@ -1080,7 +1089,7 @@ async function syncMeuPluggyIntoUserData(userId) {
   await setUserData(userId, MYPLUGGY_TRANSACTIONS_KEY, JSON.stringify(cleanedTransactions));
 
   const storedBankAccounts = await storedArray(userId, MYPLUGGY_BANK_ACCOUNTS_KEY);
-  const bankAccounts = storedBankAccounts.filter(account => !(account.source === 'MeuPluggy' && creditAccountIds.has(String(account.pluggyAccountId || '').replace(/^pluggy-/, ''))));
+  const bankAccounts = storedBankAccounts.filter(account => !(account.source === 'MeuPluggy' && (creditAccountIds.has(String(account.pluggyAccountId || '').replace(/^pluggy-/, '')) || excludedSet.has(String(account.pluggyAccountId || '')))));
   for (const incoming of accounts) {
     const index = bankAccounts.findIndex(account => String(account.id) === incoming.id);
     if (index < 0) bankAccounts.push(incoming);
@@ -1100,7 +1109,7 @@ async function syncMeuPluggyIntoUserData(userId) {
   }
   return {
     accountCount: accounts.length, cardCount: cards.length, itemCount: successful.length, failedItems, added, updated, syncedAt,
-    accounts: accounts.map(account => ({ id: String(account.pluggyAccountId), name: String(account.name.replace(/ · MeuPluggy$/, '')), type: String(account.subtype || account.type || ''), balance: Number(account.balance) || 0, currencyCode: String(account.currencyCode || 'BRL') })),
+    accounts: accounts.map(account => ({ id: String(account.pluggyAccountId), name: String(account.name.replace(/ · MeuPluggy$/, '')), bankName: String(account.bankName || account.name.replace(/ · MeuPluggy$/, '')), accountNumber: String(account.accountNumber || ''), accountType: String(account.accountType || account.subtype || account.type || ''), type: String(account.accountType || account.subtype || account.type || ''), balance: Number(account.balance) || 0, currencyCode: String(account.currencyCode || 'BRL') })),
     cards, transactions
   };
 }
