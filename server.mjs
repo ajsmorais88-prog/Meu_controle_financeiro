@@ -1000,7 +1000,7 @@ async function syncMeuPluggyIntoUserData(userId) {
               lastFour: cardNumber.slice(-4),
               ...(billId ? { billId } : {}),
               ...(billForecastDate ? { billForecastDate } : {}),
-              ...(statementMonth ? { statementMonth } : {}),
+              statementMonth: statementMonth || null,
               pluggyStatus: String(entry.status || '')
             });
           }
