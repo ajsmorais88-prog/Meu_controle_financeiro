@@ -2224,13 +2224,34 @@ async function main() {
           if (!adminAccount?.emailVerifiedAt || !isAdminUser(adminAccount)) { send(res, 404, { error: 'Rota não encontrada.' }); return; }
           if (req.method === 'GET' && pathname === '/api/mypluggy/status') {
             const items = await readMeuPluggyItems(session.userId);
-            const connected = items.length > 0;
+            const displayItems = await Promise.all(items.map(async item => {
+              let accountDetails = Array.isArray(item.accountDetails) ? item.accountDetails : [];
+              if (!accountDetails.length) {
+                try {
+                  const accountData = await pluggyRequest(`/accounts?itemId=${encodeURIComponent(item.itemId)}`);
+                  const accounts = Array.isArray(accountData.results) ? accountData.results : Array.isArray(accountData) ? accountData : [];
+                  accountDetails = accounts.slice(0, 30).map(account => {
+                    const isCard = String(account.subtype || '').toUpperCase() === 'CREDIT_CARD' || Boolean(account.creditData);
+                    const number = String(account.number || '').replace(/\D/g, '');
+                    const accountName = String(account.name || account.type || (isCard ? 'Cartão de crédito' : 'Conta'));
+                    return {
+                      institutionName: String(account.marketingName || account.name || account.type || 'Instituição'),
+                      accountName,
+                      accountType: isCard ? 'CREDIT_CARD' : String(account.subtype || account.type || ''),
+                      lastFour: number.slice(-4)
+                    };
+                  });
+                } catch {}
+              }
+              return { ...item, accountDetails };
+            }));
+            const connected = displayItems.length > 0;
             send(res, 200, {
               configured: Boolean(process.env.PLUGGY_CLIENT_ID && process.env.PLUGGY_CLIENT_SECRET),
               connected,
               connectorName: connected ? 'MeuPluggy' : '',
-              items: items.map(item => ({ itemId: item.itemId, accountNames: Array.isArray(item.accountNames) ? item.accountNames : [], accountDetails: Array.isArray(item.accountDetails) ? item.accountDetails : [], connectedAt: item.connectedAt || null, syncedAt: item.syncedAt || null })),
-              message: connected ? `${items.length} conexão(ões) MeuPluggy vinculada(s). Você pode adicionar outras.` : 'Vincule um ou mais ItemIds MeuPluggy desta conta administradora.'
+              items: displayItems.map(item => ({ itemId: item.itemId, accountNames: Array.isArray(item.accountNames) ? item.accountNames : [], accountDetails: Array.isArray(item.accountDetails) ? item.accountDetails : [], connectedAt: item.connectedAt || null, syncedAt: item.syncedAt || null })),
+              message: connected ? `${displayItems.length} conexão(ões) MeuPluggy vinculada(s). Você pode adicionar outras.` : 'Vincule um ou mais ItemIds MeuPluggy desta conta administradora.'
             });
             return;
           }
