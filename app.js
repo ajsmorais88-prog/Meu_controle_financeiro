@@ -254,20 +254,32 @@
     select.replaceChildren(...(activeAccounts.length?activeAccounts.map(account=>new Option(bankAccountOptionLabel(account),String(account.id))):[new Option('Nenhuma conta cadastrada','')]));
     select.value=overviewBankAccountId;select.disabled=!activeAccounts.length;
     const account=activeAccounts.find(item=>String(item.id)===overviewBankAccountId);
-    if(!account){$('#incomeValue').textContent=money(0);$('#expenseValue').textContent=money(0);$('#balanceValue').textContent=money(0);$('#overviewIncomeCaption').textContent='Nenhuma conta cadastrada';$('#overviewExpenseCaption').textContent='Nenhuma conta cadastrada';$('#overviewBalanceCaption').textContent='Cadastre ou sincronize uma conta bancária';return;}
+    if(!account){$('#overviewOpeningBalance').textContent=money(0);$('#incomeValue').textContent=money(0);$('#expenseValue').textContent=money(0);$('#balanceValue').textContent=money(0);$('#overviewOpeningCaption').textContent='Nenhuma conta cadastrada';$('#overviewIncomeCaption').textContent='Nenhuma conta cadastrada';$('#overviewExpenseCaption').textContent='Nenhuma conta cadastrada';$('#overviewBalanceCaption').textContent='Cadastre ou sincronize uma conta bancária';return;}
     const selectedMonth=monthKey(new Date(today.getFullYear(),today.getMonth()+monthOffset,1));
     const accountTransactions=transactions.filter(t=>!t.statementBatchId&&t.paymentMethod!=='cartao'&&!t.cardId&&transactionBankAccountId(t)===overviewBankAccountId);
     const monthTransactions=accountTransactions.filter(t=>String(t.date||'').slice(0,7)===selectedMonth);
     const income=monthTransactions.filter(t=>t.type==='income').reduce((sum,t)=>sum+Math.abs(Number(t.amount)||0),0);
     const expense=monthTransactions.filter(t=>t.type==='expense').reduce((sum,t)=>sum+Math.abs(Number(t.amount)||0),0);
     const [year,month]=selectedMonth.split('-').map(Number),monthDate=new Date(year,month-1,1);
+    const previousMonthKey=monthKey(new Date(year,month-2,1));
+    const previousMonthTransactions=accountTransactions.filter(t=>String(t.date||'').slice(0,7)===previousMonthKey);
+    const previousIncome=previousMonthTransactions.filter(t=>t.type==='income').reduce((sum,t)=>sum+Math.abs(Number(t.amount)||0),0);
+    const previousExpense=previousMonthTransactions.filter(t=>t.type==='expense').reduce((sum,t)=>sum+Math.abs(Number(t.amount)||0),0);
+    const openingBalance=bankAccountBalanceForMonth(account,previousMonthKey,accountTransactions,previousIncome,previousExpense);
     const balance=bankAccountBalanceForMonth(account,selectedMonth,accountTransactions,income,expense);
+    const expectedBalance=openingBalance+income-expense;
+    const reconciliationDifference=balance-expectedBalance;
+    $('#overviewOpeningBalance').textContent=money(openingBalance);
     $('#incomeValue').textContent=money(income);$('#expenseValue').textContent=money(expense);$('#balanceValue').textContent=money(balance);
     const monthLabel=new Intl.DateTimeFormat('pt-BR',{month:'long',year:'numeric'}).format(monthDate);
-    const pluggyBalance=account.source==='MeuPluggy'&&Number.isFinite(Number(account.balance))?Number(account.balance):null;
+    const previousMonthLabel=new Intl.DateTimeFormat('pt-BR',{month:'long',year:'numeric'}).format(new Date(year,month-2,1));
+    const currentMonthKey=monthKey(today);
+    const balanceTitle=selectedMonth===currentMonthKey?'Saldo atual':selectedMonth<currentMonthKey?'Saldo ao fim do mês':'Saldo projetado';
+    $('#overviewOpeningCaption').textContent=`Fechamento de ${previousMonthLabel}`;
     $('#overviewIncomeCaption').textContent=`Total recebido · ${monthLabel}`;
     $('#overviewExpenseCaption').textContent=`Total pago ou registrado · ${monthLabel}`;
-    $('#overviewBalanceCaption').textContent=pluggyBalance!==null?`${account.name} · Saldo em ${monthLabel} baseado na posição Pluggy`:`${account.name} · Saldo de fechamento em ${monthLabel}`;
+    $('#overviewBalanceTitle').textContent=balanceTitle;
+    $('#overviewBalanceCaption').textContent=Math.abs(reconciliationDifference)<0.01?'Saldo inicial + entradas − saídas':`Diferença de conciliação: ${money(Math.abs(reconciliationDifference))} ${reconciliationDifference>0?'acima':'abaixo'} do saldo calculado`;
   }
   function getBankClosingBalance(targetMonth,bankTransactions,accountId=selectedBankAccountId){const known=bankBalanceOverride(accountId,targetMonth);if(known!==null)return known;const prefix=`${accountId}::`;const overrides=Object.entries(bankBalanceOverrides).map(([key,value])=>key.startsWith(prefix)?[key.slice(prefix.length),value]:String(accountId)===String(bankAccounts[0]?.id)&&/^\d{4}-\d{2}$/.test(key)?[key,value]:null).filter(entry=>entry&&entry[0]<=targetMonth).sort((a,b)=>a[0].localeCompare(b[0]));const [year,month]=targetMonth.split('-').map(Number),cutoff=new Date(year,month,1);if(!overrides.length)return sumBankTransactions(bankTransactions,null,cutoff);const [baseMonth,baseValue]=overrides[overrides.length-1],[baseYear,baseMonthNumber]=baseMonth.split('-').map(Number);return(Number(baseValue)||0)+sumBankTransactions(bankTransactions,new Date(baseYear,baseMonthNumber,1),cutoff);}
   function bankAccountBalanceForMonth(account,targetMonth,accountTransactions,income,expense){
@@ -289,8 +301,8 @@
     const selectedMonth=$('#transactionsMonthFilter').value||monthKey(today);
     renderBankAccountOptions();const accountTransactions=transactions.filter(t=>!t.statementBatchId&&t.paymentMethod!=='cartao'&&!t.cardId&&transactionBankAccountId(t)===String(selectedBankAccountId));
     const monthTransactions=accountTransactions.filter(t=>String(t.date||'').slice(0,7)===selectedMonth).sort((a,b)=>String(b.date).localeCompare(String(a.date))||Number(b.createdAt||0)-Number(a.createdAt||0));
-    const income=monthTransactions.filter(t=>t.type==='income').reduce((sum,t)=>sum+Number(t.amount||0),0);
-    const expense=monthTransactions.filter(t=>t.type==='expense').reduce((sum,t)=>sum+Number(t.amount||0),0);
+    const income=monthTransactions.filter(t=>t.type==='income').reduce((sum,t)=>sum+Math.abs(Number(t.amount)||0),0);
+    const expense=monthTransactions.filter(t=>t.type==='expense').reduce((sum,t)=>sum+Math.abs(Number(t.amount)||0),0);
     const monthDate=new Date(Number(selectedMonth.slice(0,4)),Number(selectedMonth.slice(5,7))-1,1);
     const bankTransactions=accountTransactions;
     updateOpeningBalanceFromStatement(bankTransactions);
