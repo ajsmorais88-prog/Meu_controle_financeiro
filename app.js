@@ -248,7 +248,7 @@
   let overviewBankAccountId=String(bankAccounts[0]?.id||'');
   function renderOverviewBankSummary(){
     const select=$('#overviewBankSelect');if(!select)return;
-    const activeAccounts=bankAccounts.filter(account=>!account.excluded);
+    const activeAccounts=bankAccounts.filter(account=>!account.excluded&&String(account.id)!=='main'&&String(account.bankName||account.name||'').trim().toLocaleLowerCase('pt-BR')!=='conta principal');
     if(!activeAccounts.some(account=>String(account.id)===overviewBankAccountId))overviewBankAccountId=String(activeAccounts[0]?.id||'');
     select.replaceChildren(...(activeAccounts.length?activeAccounts.map(account=>new Option(bankAccountOptionLabel(account),String(account.id))):[new Option('Nenhuma conta cadastrada','')]));
     select.value=overviewBankAccountId;select.disabled=!activeAccounts.length;
