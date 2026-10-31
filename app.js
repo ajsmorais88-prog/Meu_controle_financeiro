@@ -136,9 +136,14 @@
     const count=Math.min(120,Math.max(1,Number(transaction.installments)||1));
     const current=Math.min(count,Math.max(1,Number(transaction.currentInstallment)||1));
     const sign=transaction.type==='income'?-1:1;
-    if(transaction.statementMonth&&(transaction.paymentMethod==='cartao'||transaction.cardId)){
-      const [year,month]=String(transaction.statementMonth).split('-').map(Number);
-      const schedule=[{transaction,installmentIndex:current,installmentCount:count,monthKey:String(transaction.statementMonth),amount:cardInstallmentAmount(transaction,current)*sign}];
+    let statementMonth=transaction.statementMonth;
+    if(transaction.source==='MeuPluggy'){
+      const matchedBill=transaction.billId&&Array.isArray(card?.pluggyBills)?card.pluggyBills.find(item=>String(item.id)===String(transaction.billId)):null;
+      statementMonth=matchedBill?.monthKey||(String(transaction.billForecastDate||'').match(/^\d{4}-\d{2}/)?.[0]||'');
+    }
+    if(statementMonth&&(transaction.paymentMethod==='cartao'||transaction.cardId)){
+      const [year,month]=String(statementMonth).split('-').map(Number);
+      const schedule=[{transaction,installmentIndex:current,installmentCount:count,monthKey:String(statementMonth),amount:cardInstallmentAmount(transaction,current)*sign}];
       if(transaction.type==='expense'){
         for(let installment=current+1;installment<=count;installment++){
           const dueMonth=new Date(year,month-1+(installment-current),1);
@@ -397,9 +402,9 @@
         if(transaction.type!=='expense'&&!(transaction.type==='income'&&transaction.source==='MeuPluggy'))return[];
         return cardPaymentSchedule(transaction,card);
       }).filter(payment=>payment.monthKey===selectedMonth).sort((a,b)=>b.transaction.date.localeCompare(a.transaction.date));
-      const bill=Array.isArray(card.pluggyBills)?card.pluggyBills.find(item=>String(item.monthKey)===selectedMonth):null;const total=bill?Number(bill.totalAmount):purchases.reduce((sum,payment)=>sum+payment.amount,0),group=document.createElement('article');group.className='panel card-purchase-group';
+      const bill=Array.isArray(card.pluggyBills)?card.pluggyBills.find(item=>String(item.monthKey)===selectedMonth):null;const listedTotal=purchases.reduce((sum,payment)=>sum+payment.amount,0);const billTotal=bill?Number(bill.totalAmount):null;const useOfficialBill=bill&&Number.isFinite(billTotal)&&(Math.abs(billTotal)>0.005||Math.abs(listedTotal)<0.005);const total=useOfficialBill?billTotal:listedTotal,group=document.createElement('article');group.className='panel card-purchase-group';
       const heading=document.createElement('div');heading.className='card-purchase-heading';const title=document.createElement('div');const cardName=document.createElement('h2');cardName.textContent=card.name;const due=document.createElement('span');due.className='card-detail';due.textContent=`Fecha dia ${cardClosingDay(card)} · Vencimento dia ${card.dueDay} · Limite ${money(card.limit)}`;title.append(cardName,due);
-      const monthTotal=document.createElement('div');monthTotal.className='card-month-total';const totalLabel=document.createElement('span');totalLabel.textContent=`Fatura · ${new Intl.DateTimeFormat('pt-BR',{month:'long',year:'numeric'}).format(new Date(`${selectedMonth}-02T12:00:00`))}${bill?' · Open Finance':''}`;const totalValue=document.createElement('strong');totalValue.textContent=money(total);monthTotal.append(totalLabel,totalValue);heading.append(title,monthTotal);group.append(heading);if(bill){const billNote=document.createElement('p');billNote.className='card-detail';billNote.textContent='Total oficial da fatura retornado pela Pluggy. Os lançamentos detalhados aparecem abaixo.';group.append(billNote);}
+      const monthTotal=document.createElement('div');monthTotal.className='card-month-total';const totalLabel=document.createElement('span');totalLabel.textContent=`Fatura · ${new Intl.DateTimeFormat('pt-BR',{month:'long',year:'numeric'}).format(new Date(`${selectedMonth}-02T12:00:00`))}${useOfficialBill?' · Open Finance':bill?' · estimada':''}`;const totalValue=document.createElement('strong');totalValue.textContent=money(total);monthTotal.append(totalLabel,totalValue);heading.append(title,monthTotal);group.append(heading);if(useOfficialBill){const billNote=document.createElement('p');billNote.className='card-detail';billNote.textContent='Total oficial da fatura retornado pela Pluggy. Os lançamentos detalhados aparecem abaixo.';group.append(billNote);}else if(bill||card.source==='MeuPluggy'){const billNote=document.createElement('p');billNote.className='card-detail';billNote.textContent='Fatura fechada ainda sem total disponível na Pluggy; valor estimado pela soma dos lançamentos deste período.';group.append(billNote);}
       const batches=new Map();for(const transaction of cardTransactions){if(transaction.statementBatchId&&String(transaction.statementMonth)===selectedMonth)batches.set(transaction.statementBatchId,transaction);}
       for(const transaction of batches.values()){
         if(transaction.statementFormat!=='pdf')continue;
