@@ -250,3 +250,8 @@ dialog{border:1px solid #dce7ed}
 .overview-bank-filter label{font-size:10px;line-height:1.2;color:#60736a}
 .overview-bank-filter select{height:39px;min-width:190px;max-width:260px}
 @media(max-width:700px){.intro{align-items:stretch}.overview-controls{justify-content:flex-start;width:100%}.overview-bank-filter{flex:1;min-width:150px}.overview-bank-filter select{width:100%;max-width:none}}
+
+/* Visão geral: quatro indicadores bancários seguem a conciliação mensal */
+.overview-bank-summary{grid-template-columns:repeat(4,minmax(0,1fr))}
+@media(max-width:1000px){.overview-bank-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.overview-bank-summary{grid-template-columns:1fr}}
