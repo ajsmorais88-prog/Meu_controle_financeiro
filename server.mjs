@@ -862,7 +862,6 @@ async function listPluggyTransactions(accountId) {
 
 const MYPLUGGY_ITEMS_KEY = 'mypluggy_items';
 const MYPLUGGY_TRANSACTIONS_KEY = 'meu-controle-financeiro-transactions-v1';
-const MYPLUGGY_BANK_ACCOUNTS_KEY = 'meu-controle-financeiro-bank-accounts-v1';
 const MYPLUGGY_CARDS_KEY = 'meu-controle-financeiro-cards-v1';
 async function readMeuPluggyItems(userId) {
   let items = await getUserData(userId, MYPLUGGY_ITEMS_KEY, []);
