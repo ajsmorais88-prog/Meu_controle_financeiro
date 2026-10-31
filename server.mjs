@@ -939,10 +939,16 @@ async function syncMeuPluggyIntoUserData(userId) {
         error.status = 409;
         throw error;
       }
-      const [accountData, itemInvestments] = await Promise.all([
+      const [accountData, investmentResult] = await Promise.all([
         pluggyRequest(`/accounts?itemId=${encodeURIComponent(savedItem.itemId)}`),
-        listPluggyInvestments(savedItem.itemId).catch(() => [])
+        listPluggyInvestments(savedItem.itemId)
+          .then(investments => ({ investments, warning: '' }))
+          .catch(error => ({
+            investments: [],
+            warning: String(error?.message || 'Não foi possível consultar os investimentos desta conexão.').slice(0, 180)
+          }))
       ]);
+      const itemInvestments = investmentResult.investments;
       const accounts = Array.isArray(accountData.results) ? accountData.results : Array.isArray(accountData) ? accountData : [];
       const institutionName = accounts.find(account => String(account.subtype || '').toUpperCase() !== 'CREDIT_CARD' && !account.creditData)?.name || accounts[0]?.name || 'MeuPluggy';
       const investments = itemInvestments.map(position => ({
@@ -954,7 +960,14 @@ async function syncMeuPluggyIntoUserData(userId) {
         code: String(position.code || '').slice(0, 60),
         type: String(position.type || 'OTHER'),
         subtype: String(position.subtype || ''),
-        balance: Number(position.balance ?? position.amount ?? 0),
+        balance: (() => {
+          const reported = Number(position.balance);
+          const amount = Number(position.amount);
+          const marketValue = (Number(position.quantity) || 0) * (Number(position.value) || 0);
+          return Number.isFinite(reported) && reported > 0 ? reported
+            : Number.isFinite(amount) && amount > 0 ? amount
+              : Number.isFinite(marketValue) ? marketValue : 0;
+        })(),
         amountOriginal: Number(position.amountOriginal ?? position.amount ?? 0),
         quantity: Number(position.quantity || 0),
         value: Number(position.value || 0),
@@ -1083,7 +1096,7 @@ async function syncMeuPluggyIntoUserData(userId) {
           });
         }
       }
-      return { ok: true, savedItem, accounts: bankAccounts, cards, transactions, investments };
+      return { ok: true, savedItem, accounts: bankAccounts, cards, transactions, investments, investmentWarning: investmentResult.warning };
     } catch (error) {
       return { ok: false, savedItem, error };
     }
@@ -1092,6 +1105,10 @@ async function syncMeuPluggyIntoUserData(userId) {
   const failedItems = results.filter(result => !result.ok).map(result => ({
     itemId: result.savedItem.itemId,
     message: String(result.error?.message || 'Não foi possível sincronizar esta conexão.').slice(0, 180)
+  }));
+  const investmentWarnings = successful.filter(result => result.investmentWarning).map(result => ({
+    itemId: result.savedItem.itemId,
+    message: result.investmentWarning
   }));
   if (!successful.length) throw results.find(result => !result.ok)?.error || new Error('Nenhum item MeuPluggy foi sincronizado.');
   const syncedAt = new Date().toISOString();
@@ -1173,7 +1190,7 @@ async function syncMeuPluggyIntoUserData(userId) {
     await setUserData(userId, 'meu-controle-financeiro-bank-selected-account-v1', bankAccounts[0].id);
   }
   return {
-    accountCount: accounts.length, cardCount: cards.length, itemCount: successful.length, failedItems, added, updated, syncedAt,
+    accountCount: accounts.length, cardCount: cards.length, itemCount: successful.length, failedItems, investmentWarnings, added, updated, syncedAt,
     accounts: accounts.map(account => ({ id: String(account.pluggyAccountId), name: String(account.name.replace(/ · MeuPluggy$/, '')), bankName: String(account.bankName || account.name.replace(/ · MeuPluggy$/, '')), accountNumber: String(account.accountNumber || ''), accountType: String(account.accountType || account.subtype || account.type || ''), type: String(account.accountType || account.subtype || account.type || ''), balance: Number(account.balance) || 0, currencyCode: String(account.currencyCode || 'BRL') })),
     cards, transactions, investments
   };
