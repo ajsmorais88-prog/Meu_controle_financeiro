@@ -346,13 +346,14 @@
     const alerts=[],fixedAmount=fixedMonthlyTotal(),investmentAmount=Number(currentInvestmentBalance)||0;
     const plan=[
       {key:'fixed',name:'Custos fixos',share:allocation.fixed/100,amount:fixedAmount,type:'limit'},
-      {key:'card',name:'Cartão de crédito',share:monthlyIncome>0?Math.max(0,Number(cardBudget)||0)/monthlyIncome:allocation.card/100,amount:Number(currentCardInvoice)||0,type:'limit'},
+      {key:'card',name:'Cartão de crédito',share:allocation.card/100,targetAmount:Math.max(0,Number(cardBudget)||0),amount:Number(currentCardInvoice)||0,type:'limit'},
       {key:'investment',name:'Investimentos',share:allocation.investment/100,amount:investmentAmount,type:'goal'}
     ];
     const lastDay=new Date(today.getFullYear(),today.getMonth()+1,0).getDate();
-    const investmentTarget=monthlyIncome*allocation.investment/100,investmentMissedAtMonthEnd=today.getDate()===lastDay&&investmentAmount<investmentTarget;
-    const deviations=monthlyIncome>0?plan.filter(item=>item.key==='investment'?item.amount>monthlyIncome*item.share||investmentMissedAtMonthEnd:item.amount>monthlyIncome*item.share):[];
-    const near=plan.filter(item=>item.type==='limit'&&item.amount>=monthlyIncome*item.share*.8&&item.amount<=monthlyIncome*item.share);
+    const planTarget=item=>Number.isFinite(Number(item.targetAmount))?Number(item.targetAmount):monthlyIncome*item.share;
+    const investmentTarget=planTarget(plan.find(item=>item.key==='investment')),investmentMissedAtMonthEnd=today.getDate()===lastDay&&investmentAmount<investmentTarget;
+    const deviations=monthlyIncome>0?plan.filter(item=>item.key==='investment'?item.amount>planTarget(item)||investmentMissedAtMonthEnd:item.amount>planTarget(item)):[];
+    const near=plan.filter(item=>item.type==='limit'&&item.amount>=planTarget(item)*.8&&item.amount<=planTarget(item));
     const mascot=$('#alladinMascot'),mascotMood=monthlyIncome<=0||deviations.length===1?'thinking':deviations.length>1?'sad':'happy';
     const mascotMessage=monthlyIncome<=0?'Alladin precisa da sua renda para avaliar o plano':mascotMood==='happy'?'Alladin está feliz: tudo dentro do planejado':mascotMood==='sad'? 'Alladin está triste: '+deviations.length+' indicadores fora do planejado':'Alladin está pensativo: 1 indicador fora do planejado';
     mascot.dataset.mood=mascotMood;mascot.setAttribute('aria-label',mascotMessage);mascot.querySelector('.alladin-mood-label').textContent=mascotMood==='happy'?'Tudo no planejado':mascotMood==='sad'?deviations.length+' indicadores fora':'Acompanhando o plano';
@@ -361,7 +362,7 @@
     else if(near.length)summary.textContent='Atenção: '+near.map(item=>item.name).join(' e ')+' está(ão) próximo(s) do limite mensal.';
     else summary.textContent=`O plano ${allocation.fixed}/${allocation.card}/${allocation.investment} está dentro dos limites até agora. O Alladin continuará acompanhando.`;
     for(const item of plan){
-      const target=monthlyIncome*item.share,amount=item.amount,pct=target>0?Math.round(amount/target*100):0,sharePct=monthlyIncome>0?Math.round(amount/monthlyIncome*100):0;
+      const target=planTarget(item),amount=item.amount,pct=target>0?Math.round(amount/target*100):0,sharePct=monthlyIncome>0?Math.round(amount/monthlyIncome*100):0;
       let state='Informe sua renda',stateClass='plan-monitor-neutral',detail=money(target)+' planejados';
       if(monthlyIncome>0){
         if(item.type==='limit'){
