@@ -256,12 +256,15 @@
     const previousMonthKey=monthKey(new Date(monthDate.getFullYear(),monthDate.getMonth()-1,1));
     const previousMonthBalance=getBankClosingBalance(previousMonthKey,bankTransactions,selectedBankAccountId);
     const selectedBalance=bankBalanceOverride(selectedBankAccountId,selectedMonth);const bankBalance=selectedBalance!==null?selectedBalance:previousMonthBalance+income-expense;
-    $('#previousMonthBalance').textContent=money(previousMonthBalance);
-    $('#bankAccountBalance').textContent=money(bankBalance);
+    const selectedBankAccount=bankAccounts.find(account=>String(account.id)===String(selectedBankAccountId));
+    const pluggyBalance=selectedBankAccount?.source==='MeuPluggy'&&Number.isFinite(Number(selectedBankAccount.balance))?Number(selectedBankAccount.balance):null;
+    const selectedAccountBalance=pluggyBalance!==null?pluggyBalance:(selectedBalance!==null?selectedBalance:previousMonthBalance+income-expense);
+    $('#bankAccountBalance').textContent=money(selectedAccountBalance);
+    $('#bankCurrentBalanceCaption').textContent=pluggyBalance!==null?'Saldo atual informado pelo Pluggy':'Saldo atual da conta selecionada';
     $('#overviewOpeningBalance').textContent=money(previousMonthBalance);
     $('#incomeValue').textContent=money(income);
     $('#expenseValue').textContent=money(expense);
-    $('#balanceValue').textContent=money(bankBalance);
+    $('#balanceValue').textContent=money(selectedAccountBalance);
     const overviewAccount=bankAccounts.find(account=>String(account.id)===String(selectedBankAccountId));
     $('#overviewBalanceCaption').textContent=`${overviewAccount?.name||'Conta principal'} · Mesmo saldo atual das transações bancárias`;
     $('#allTransactionsMonthLabel').textContent=`${bankAccounts.find(item=>String(item.id)===String(selectedBankAccountId))?.name||'Conta'} · ${new Intl.DateTimeFormat('pt-BR',{month:'long',year:'numeric'}).format(monthDate)}`;
