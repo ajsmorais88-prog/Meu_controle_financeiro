@@ -139,7 +139,7 @@
     let statementMonth=transaction.statementMonth;
     if(transaction.source==='MeuPluggy'){
       const matchedBill=transaction.billId&&Array.isArray(card?.pluggyBills)?card.pluggyBills.find(item=>String(item.id)===String(transaction.billId)):null;
-      statementMonth=matchedBill?.monthKey||(String(transaction.billForecastDate||'').match(/^\d{4}-\d{2}/)?.[0]||'');
+      statementMonth=matchedBill?.monthKey||'';
     }
     if(statementMonth&&(transaction.paymentMethod==='cartao'||transaction.cardId)){
       const [year,month]=String(statementMonth).split('-').map(Number);
