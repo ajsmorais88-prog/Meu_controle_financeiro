@@ -683,6 +683,65 @@
   if(syncedBinance?.selectedExchange&&cryptoExchangeOptions[syncedBinance.selectedExchange])$('#cryptoExchangeSelect').value=syncedBinance.selectedExchange;
   function selectedCryptoExchange(){return $('#cryptoExchangeSelect').value||'binance';}
   function selectedCryptoSnapshot(){const provider=selectedCryptoExchange();return syncedBinance?.exchanges?.[provider]||(syncedBinance?.exchange===provider?syncedBinance:provider==='binance'&&!syncedBinance?.exchange?syncedBinance:null);}
+  async function renderCryptoConnectedAccounts(){
+    const list=$('#cryptoConnectedAccounts');if(!list)return;
+    list.replaceChildren();
+    const providers=Object.keys(cryptoExchangeOptions);
+    const results=await Promise.all(providers.map(async provider=>{
+      try{
+        const response=await fetch('/api/crypto/'+provider+'/credentials',{cache:'no-store'});
+        if(response.status===401){location.reload();return null;}
+        if(!response.ok)return null;
+        const data=await response.json();return data.configured?provider:null;
+      }catch{return null;}
+    }));
+    const connected=results.filter(Boolean);
+    if(!connected.length){
+      const empty=document.createElement('p');empty.className='crypto-connected-empty';empty.textContent='Nenhuma corretora cadastrada. Escolha uma acima e salve as credenciais para registrar a conta.';list.append(empty);return;
+    }
+    for(const provider of connected){
+      const spec=cryptoExchangeOptions[provider],snapshot=syncedBinance?.exchanges?.[provider]||(syncedBinance?.exchange===provider?syncedBinance:null);
+      const card=document.createElement('article');card.className='crypto-connected-card';
+      const heading=document.createElement('div');heading.className='crypto-connected-card-heading';
+      const logo=document.createElement('span');logo.className='connection-logo binance-logo';logo.textContent='₿';logo.setAttribute('aria-label','Criptoativos');
+      const identity=document.createElement('div');identity.className='crypto-connected-identity';
+      const name=document.createElement('strong');name.textContent=spec.name;
+      const state=document.createElement('span');state.className='crypto-connected-state';state.textContent=snapshot?.updatedAt?'Sincronizada':'Cadastrada · ainda não sincronizada';
+      identity.append(name,state);
+      const actions=document.createElement('div');actions.className='crypto-connected-actions';
+      const sync=document.createElement('button');sync.type='button';sync.className='button button-dark';sync.textContent='Sincronizar';
+      sync.addEventListener('click',async()=>{
+        const selector=$('#cryptoExchangeSelect');selector.value=provider;
+        if(!syncedBinance)syncedBinance={balances:[],exchanges:{}};
+        syncedBinance.selectedExchange=provider;localStorage.setItem(BINANCE_BALANCES_KEY,JSON.stringify(syncedBinance));updateCryptoExchangeForm();
+        await syncCryptoExchangeAccount(provider,sync);
+      });
+      const remove=document.createElement('button');remove.type='button';remove.className='row-action row-delete';remove.textContent='Remover';
+      remove.addEventListener('click',async()=>{
+        if(!confirm('Remover a conexão '+spec.name+' e as credenciais salvas nesta conta?'))return;
+        remove.disabled=true;
+        try{
+          const response=await fetch('/api/crypto/'+provider+'/credentials',{method:'DELETE',cache:'no-store'});
+          const data=await response.json().catch(()=>({}));
+          if(response.status===401){location.reload();return;}
+          if(!response.ok)throw new Error(data.error||'Não foi possível remover a conexão.');
+          if(syncedBinance?.exchanges)delete syncedBinance.exchanges[provider];
+          if(syncedBinance?.exchange===provider)syncedBinance=null;
+          localStorage.setItem(BINANCE_BALANCES_KEY,JSON.stringify(syncedBinance));
+          await renderCryptoConnectedAccounts();
+          if(selectedCryptoExchange()===provider){$('#removeBinanceCredentials').hidden=true;$('#binanceCredentialStatus').textContent='Credenciais removidas desta conta.';$('#binanceConnectionState').textContent='Não sincronizada';$('#binanceConnectionMessage').textContent='Cadastre uma chave somente leitura para acompanhar a carteira.';renderCryptoPortfolio();}
+          showToast('Conexão '+spec.name+' removida.');
+        }catch(error){showToast(error.message);}
+        finally{remove.disabled=false;}
+      });
+      actions.append(sync,remove);heading.append(logo,identity,actions);
+      const details=document.createElement('p');details.className='crypto-connected-meta';
+      const syncedAt=snapshot?.updatedAt?new Intl.DateTimeFormat('pt-BR',{dateStyle:'medium',timeStyle:'short'}).format(new Date(snapshot.updatedAt)):'Nenhuma sincronização realizada';
+      const count=Array.isArray(snapshot?.balances)?snapshot.balances.filter(item=>Number(item.total)>0).length:0;
+      details.textContent=snapshot?.updatedAt?'Última sincronização: '+syncedAt+' · '+count+' ativo(s) com saldo':'Credenciais protegidas nesta conta · clique em Sincronizar para buscar seus ativos.';
+      card.append(heading,details);list.append(card);
+    }
+  }
   function updateCryptoExchangeForm(){
     const provider=selectedCryptoExchange(),spec=cryptoExchangeOptions[provider];
     $('#cryptoAccountTitle').textContent='Conta '+spec.name;
@@ -700,13 +759,13 @@
     event.preventDefault();const form=event.currentTarget,provider=selectedCryptoExchange(),spec=cryptoExchangeOptions[provider];
     const button=form.querySelector('button[type=submit]'),status=$('#binanceCredentialStatus');const credentials=Object.fromEntries(new FormData(form));
     button.disabled=true;status.textContent='Criptografando e salvando as credenciais nesta conta…';
-    try{const response=await fetch('/api/crypto/'+provider+'/credentials',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(credentials),cache:'no-store'});const result=await response.json();if(response.status===401){location.reload();return;}if(!response.ok)throw new Error(result.error||'Não foi possível salvar as credenciais.');form.reset();$('#removeBinanceCredentials').hidden=false;status.textContent='Credenciais da '+spec.name+' protegidas para esta conta. Agora você pode sincronizar.';showToast('Credenciais da '+spec.name+' salvas.');}
+    try{const response=await fetch('/api/crypto/'+provider+'/credentials',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(credentials),cache:'no-store'});const result=await response.json();if(response.status===401){location.reload();return;}if(!response.ok)throw new Error(result.error||'Não foi possível salvar as credenciais.');form.reset();$('#removeBinanceCredentials').hidden=false;status.textContent='Credenciais da '+spec.name+' protegidas para esta conta. Agora você pode sincronizar.';await renderCryptoConnectedAccounts();showToast('Conta '+spec.name+' cadastrada.');}
     catch(error){status.textContent=error.message;showToast(error.message);}finally{button.disabled=false;}
   });
   $('#removeBinanceCredentials').addEventListener('click',async()=>{
     const spec=cryptoExchangeOptions[selectedCryptoExchange()];if(!confirm('Remover as credenciais da '+spec.name+' desta conta?'))return;
     const button=$('#removeBinanceCredentials');button.disabled=true;
-    try{const response=await fetch('/api/crypto/'+selectedCryptoExchange()+'/credentials',{method:'DELETE',cache:'no-store'});const result=await response.json();if(response.status===401){location.reload();return;}if(!response.ok)throw new Error(result.error||'Não foi possível remover as credenciais.');button.hidden=true;$('#binanceCredentialStatus').textContent='Credenciais removidas desta conta.';showToast('Credenciais removidas.');}
+    try{const response=await fetch('/api/crypto/'+selectedCryptoExchange()+'/credentials',{method:'DELETE',cache:'no-store'});const result=await response.json();if(response.status===401){location.reload();return;}if(!response.ok)throw new Error(result.error||'Não foi possível remover as credenciais.');button.hidden=true;$('#binanceCredentialStatus').textContent='Credenciais removidas desta conta.';await renderCryptoConnectedAccounts();showToast('Credenciais removidas.');}
     catch(error){$('#binanceCredentialStatus').textContent=error.message;showToast(error.message);}finally{button.disabled=false;}
   });
   async function loadCryptoCredentialStatus(){
@@ -718,6 +777,8 @@
     }catch(error){$('#binanceCredentialStatus').textContent=error.message;}
   }
   updateCryptoExchangeForm();
+  renderCryptoConnectedAccounts();
+  $('#refreshCryptoConnections').addEventListener('click',renderCryptoConnectedAccounts);
   $('#logout').addEventListener('click',async()=>{try{const response=await fetch('/api/logout',{method:'POST'});if(response.ok)location.reload();else showToast('Não foi possível encerrar a sessão.');}catch{showToast('Abra o painel pelo servidor local para encerrar a sessão.');}});
   if(sessionInfo.isAdmin){
     $('#myPluggyAdminPanel').hidden=false;
@@ -912,9 +973,9 @@
     const original=button.textContent;button.disabled=true;button.textContent='Sincronizando…';
     try{const response=await fetch('/api/brokerages/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({itemId})});const data=await response.json();if(response.status===401){location.reload();return;}if(!response.ok)throw new Error(data.error||'Não foi possível sincronizar a carteira.');const date=card.querySelector('small');date.textContent=`Atualizada em ${new Intl.DateTimeFormat('pt-BR',{dateStyle:'short',timeStyle:'short'}).format(new Date(data.syncedAt))}`;renderBrokeragePositions(card.querySelector('.brokerage-position-list'),data.investments||[]);$('#brokerageConnectorStatus').textContent=`${data.connectorName}: ${(data.investments||[]).length} posições sincronizadas.`;showToast(`${data.connectorName} sincronizada.`);}catch(error){$('#brokerageConnectorStatus').textContent=error.message;showToast(error.message);}finally{button.disabled=false;button.textContent=original;}
   }
-  async function syncCryptoExchangeAccount(){
-    const provider=selectedCryptoExchange(),spec=cryptoExchangeOptions[provider];
-    const button=$('#syncBinance'),status=$('#binanceConnectionState'),message=$('#binanceConnectionMessage');
+  async function syncCryptoExchangeAccount(providerOverride,buttonOverride){
+    const provider=providerOverride||selectedCryptoExchange(),spec=cryptoExchangeOptions[provider];
+    const button=buttonOverride||$('#syncBinance'),status=$('#binanceConnectionState'),message=$('#binanceConnectionMessage');
     button.disabled=true;button.textContent='Sincronizando '+spec.name+'…';status.textContent='Consultando';message.textContent='Buscando saldos da conta '+spec.name+'…';
     try{
       const response=await fetch('/api/crypto/'+provider+'/account',{cache:'no-store'});
@@ -925,11 +986,11 @@
       const previous=syncedBinance||{},snapshots={...(previous.exchanges||{})};
       const snapshot={exchange:provider,balances:Array.isArray(data.balances)?data.balances:[],updatedAt:data.updatedAt||new Date().toISOString()};
       snapshots[provider]=snapshot;syncedBinance={exchange:provider,selectedExchange:provider,balances:snapshot.balances,updatedAt:snapshot.updatedAt,exchanges:snapshots};
-      localStorage.setItem(BINANCE_BALANCES_KEY,JSON.stringify(syncedBinance));renderCryptoPortfolio();await renderInvestmentAllocation();
+      localStorage.setItem(BINANCE_BALANCES_KEY,JSON.stringify(syncedBinance));renderCryptoPortfolio();await renderInvestmentAllocation();await renderCryptoConnectedAccounts();
       status.textContent='Sincronizada';message.textContent='Posição da '+spec.name+' atualizada em '+new Intl.DateTimeFormat('pt-BR',{dateStyle:'short',timeStyle:'short'}).format(new Date(snapshot.updatedAt))+'. Os saldos ficam somente em Investimentos.';
       if(!snapshot.balances.length)showToast('A conta '+spec.name+' não possui ativos com saldo para exibir.');
     }catch(error){const reason=error instanceof TypeError?'Não foi possível conectar ao servidor. Verifique sua conexão e tente novamente.':error.message;status.textContent='Não sincronizada';message.textContent=reason;showToast(reason);}
-    finally{button.disabled=false;button.textContent='Sincronizar '+spec.name;}
+    finally{button.disabled=false;button.textContent=buttonOverride?'Sincronizar':'Sincronizar '+spec.name;}
   }
   $('#addFixedCost').addEventListener('click',()=>{editingFixedId=null;$('#fixedCostForm').reset();$('#fixedDialogEyebrow').textContent='NOVO COMPROMISSO';$('#fixedDialogTitle').textContent='Adicionar custo fixo';$('#saveFixedCost').textContent='Salvar custo fixo';$('#fixedCostDialog').showModal();});
   $('#closeFixedDialog').addEventListener('click',()=>$('#fixedCostDialog').close());
