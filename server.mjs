@@ -2230,12 +2230,14 @@ async function main() {
                 try {
                   const accountData = await pluggyRequest(`/accounts?itemId=${encodeURIComponent(item.itemId)}`);
                   const accounts = Array.isArray(accountData.results) ? accountData.results : Array.isArray(accountData) ? accountData : [];
+                  const relatedInstitution = accounts.find(account => String(account.subtype || '').toUpperCase() !== 'CREDIT_CARD' && !account.creditData);
+                  const relatedInstitutionName = String(relatedInstitution?.name || relatedInstitution?.marketingName || '');
                   accountDetails = accounts.slice(0, 30).map(account => {
                     const isCard = String(account.subtype || '').toUpperCase() === 'CREDIT_CARD' || Boolean(account.creditData);
                     const number = String(account.number || '').replace(/\D/g, '');
                     const accountName = String(account.name || account.type || (isCard ? 'Cartão de crédito' : 'Conta'));
                     return {
-                      institutionName: String(account.marketingName || account.name || account.type || 'Instituição'),
+                      institutionName: String(account.marketingName || (!isCard ? account.name : '') || relatedInstitutionName || account.name || account.type || 'Instituição'),
                       accountName,
                       accountType: isCard ? 'CREDIT_CARD' : String(account.subtype || account.type || ''),
                       lastFour: number.slice(-4)
