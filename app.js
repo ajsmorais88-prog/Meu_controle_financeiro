@@ -710,10 +710,30 @@
       $('#syncMyPluggy').disabled=false;
       const linkedItems=$('#myPluggyLinkedItems');linkedItems.replaceChildren();
       for(const item of data.items||[]){
-        const row=document.createElement('div');row.className='brokerage-position-row';
-        const label=document.createElement('span');label.textContent=(item.accountNames||[]).join(', ')||'Conexão MeuPluggy';
-        const id=document.createElement('strong');id.textContent=item.itemId;
-        row.append(label,id);linkedItems.append(row);
+        const row=document.createElement('article');row.className='mypluggy-linked-item';
+        const details=Array.isArray(item.accountDetails)?item.accountDetails:[];
+        const institutions=[...new Set(details.map(account=>String(account.institutionName||account.accountName||'Instituição')).filter(Boolean))];
+        const heading=document.createElement('div');heading.className='mypluggy-linked-item-heading';
+        const title=document.createElement('strong');title.textContent=institutions.join(' · ')||(item.accountNames||[]).join(', ')||'Conexão MeuPluggy';
+        const id=document.createElement('code');id.textContent=item.itemId;heading.append(title,id);row.append(heading);
+        if(details.length){
+          const detailList=document.createElement('div');detailList.className='mypluggy-account-details';
+          for(const account of details){
+            const detail=document.createElement('div');detail.className='mypluggy-account-detail';
+            const institution=document.createElement('strong');institution.textContent=String(account.institutionName||'Instituição');
+            const accountName=String(account.accountName||'').trim();
+            const type=String(account.accountType||'').toUpperCase();
+            const typeNames={CHECKING_ACCOUNT:'Conta corrente',SAVINGS_ACCOUNT:'Poupança',CREDIT_CARD:'Cartão de crédito',INVESTMENT_ACCOUNT:'Conta de investimento',BROKERAGE_ACCOUNT:'Conta de investimento'};
+            const typeLabel=typeNames[type]||type.replaceAll('_',' ').toLocaleLowerCase('pt-BR')||'Conta';
+            const metadata=document.createElement('span');metadata.textContent=[accountName&&accountName!==institution.textContent?accountName:'',typeLabel,account.lastFour?'Final •••• '+String(account.lastFour).slice(-4):''].filter(Boolean).join(' · ');
+            detail.append(institution,metadata);detailList.append(detail);
+          }
+          row.append(detailList);
+        }else if((item.accountNames||[]).length){
+          const legacy=document.createElement('p');legacy.className='mypluggy-linked-item-legacy';legacy.textContent=(item.accountNames||[]).join(' · ')+' · Sincronize para atualizar tipo e final da conta.';
+          row.append(legacy);
+        }
+        linkedItems.append(row);
       }
       linkedItems.hidden=!(data.items||[]).length;
     }catch(error){status.textContent=error.message;}
