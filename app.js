@@ -232,11 +232,6 @@
     $('#remainingLabel').textContent=monthlyIncome<=0?'Defina sua renda mensal':realizedExpense>periodBudget?`Você passou ${money(realizedExpense-periodBudget)} do limite`: `Restam ${money(periodBudget-realizedExpense)} no limite`;
     $('#transactionsMonthFilter').value=monthKey(monthStart);
     renderAllTransactions();
-    $('#balanceValue').textContent=$('#bankAccountBalance').textContent;
-    const overviewAccount=bankAccounts.find(account=>String(account.id)===String(selectedBankAccountId));
-    $('#overviewIncomeCaption').textContent=`${overviewAccount?.name||'Conta principal'} · Total recebido no mês`;
-    $('#overviewExpenseCaption').textContent=`${overviewAccount?.name||'Conta principal'} · Total pago ou registrado no mês`;
-    $('#overviewBalanceCaption').textContent=`${overviewAccount?.name||'Conta principal'} · Saldo atualizado do mês`;
     renderCards();
     renderFixedCosts();
     renderFixedAnnualChart();
@@ -286,8 +281,8 @@
     const currentMonthKey=monthKey(today);
     const balanceTitle=selectedMonth===currentMonthKey?'Saldo atual':selectedMonth<currentMonthKey?'Saldo ao fim do mês':'Saldo projetado';
     $('#overviewOpeningCaption').textContent=`Fechamento de ${previousMonthLabel}`;
-    $('#overviewIncomeCaption').textContent=`Total recebido · ${monthLabel}`;
-    $('#overviewExpenseCaption').textContent=`Total pago ou registrado · ${monthLabel}`;
+    $('#overviewIncomeCaption').textContent='Créditos lançados no mês';
+    $('#overviewExpenseCaption').textContent='Débitos lançados no mês';
     $('#overviewBalanceTitle').textContent=balanceTitle;
     $('#overviewBalanceCaption').textContent=Math.abs(reconciliationDifference)<0.01?'Saldo inicial + entradas − saídas':`Diferença de conciliação: ${money(Math.abs(reconciliationDifference))} ${reconciliationDifference>0?'acima':'abaixo'} do saldo calculado`;
   }
