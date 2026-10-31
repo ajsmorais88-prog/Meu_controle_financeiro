@@ -952,10 +952,15 @@ async function syncMeuPluggyIntoUserData(userId) {
           const pluggyBills = (bills || []).map(bill => {
             const dueDate = String(bill.dueDate || '').slice(0, 10);
             const closingDate = String(bill.billClosingDate || '').slice(0, 10);
-            const monthKey = (closingDate || dueDate).slice(0, 7);
+            const dueParts = dueDate.slice(0, 10).split('-').map(Number);
+            const invoiceMonthKey = closingDate
+              ? closingDate.slice(0, 7)
+              : dueParts.length === 3 && dueParts.every(Number.isInteger)
+                ? monthKey(new Date(dueParts[0], dueParts[1] - 2, 1))
+                : '';
             const totalAmount = Number(bill.totalAmount);
-            return bill.id && /^\d{4}-\d{2}$/.test(monthKey) && Number.isFinite(totalAmount)
-              ? { id: String(bill.id), monthKey, dueDate, closingDate, totalAmount, currencyCode: String(bill.totalAmountCurrencyCode || 'BRL') }
+            return bill.id && /^\d{4}-\d{2}$/.test(invoiceMonthKey) && Number.isFinite(totalAmount)
+              ? { id: String(bill.id), monthKey: invoiceMonthKey, dueDate, closingDate, totalAmount, currencyCode: String(bill.totalAmountCurrencyCode || 'BRL') }
               : null;
           }).filter(Boolean);
           const billMonthById = new Map(pluggyBills.map(bill => [bill.id, bill.monthKey]));
