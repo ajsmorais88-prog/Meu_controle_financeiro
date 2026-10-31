@@ -120,7 +120,7 @@
         <article id="myPluggyAdminPanel" class="panel connection-panel mypluggy-admin-panel" hidden>
           <div class="connection-heading"><span class="connection-logo brokerage-logo">↗</span><div><p class="eyebrow">OPEN FINANCE · ADMIN</p><h2>MeuPluggy</h2></div></div>
           <p class="panel-copy">Conexão pessoal disponível somente nesta conta administradora. No painel Pluggy, abra sua aplicação → Demo → Connect Account para cada instituição e copie o respectivo ItemId em Connected Items. Cole um ItemId por vez; todos serão mantidos e sincronizados juntos.</p>
-          <label class="brokerage-select-label" for="myPluggyItemId">ItemId da conexão<input id="myPluggyItemId" type="text" inputmode="text" autocomplete="off" placeholder="Cole um ItemId copiado do painel Pluggy"></label>
+          <label class="mypluggy-itemid-field" for="myPluggyItemId"><span>ItemId do Connected Item</span><input id="myPluggyItemId" type="text" inputmode="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Cole aqui o ItemId copiado do painel Pluggy"><small>O UUID será validado e as contas vinculadas aparecerão abaixo após a sincronização.</small></label>
           <div class="bradesco-actions"><button class="button button-dark" id="connectMyPluggy" type="button">Vincular ItemId</button><button class="button button-outline" id="syncMyPluggy" type="button" hidden>Sincronizar contas</button></div>
           <p class="connection-status" id="myPluggyStatus" aria-live="polite">Verificando conexão…</p>
           <div id="myPluggyLinkedItems" class="brokerage-position-list" hidden></div>
