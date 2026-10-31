@@ -255,3 +255,13 @@ dialog{border:1px solid #dce7ed}
 .overview-bank-summary{grid-template-columns:repeat(4,minmax(0,1fr))}
 @media(max-width:1000px){.overview-bank-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:600px){.overview-bank-summary{grid-template-columns:1fr}}
+
+/* Campo de renda mensal: leitura mais clara e ação de salvar destacada */
+.plan-editor-interactive .budget-input{height:48px;min-width:300px;border:1px solid #cddfdc;border-radius:12px;padding-left:14px;gap:8px;background:#fff;color:#74847d;box-shadow:0 3px 10px rgba(25,65,82,.05);transition:border-color .18s,box-shadow .18s}
+.plan-editor-interactive .budget-input:focus-within{border-color:#58a99a;box-shadow:0 0 0 4px rgba(37,139,121,.12)}
+.plan-editor-interactive .budget-input>span{font-size:12px;font-weight:700;color:#6f8179}
+.plan-editor-interactive .budget-input input{flex:1;min-width:0;width:100%;height:100%;padding:0 8px;border:0;background:transparent;color:#173a32;font:600 15px var(--font);font-variant-numeric:tabular-nums;outline:0}
+.plan-editor-interactive .budget-input input::placeholder{color:#a5b1ac;font-weight:400}
+.plan-editor-interactive .budget-input button{min-width:82px;align-self:stretch;margin:4px;border:0;border-radius:9px;background:linear-gradient(135deg,#e8f4ef,#e3f1ed);color:#176b5b;font:700 12px var(--font);transition:background .18s,color .18s,transform .18s}
+.plan-editor-interactive .budget-input button:hover{background:linear-gradient(135deg,#176b5b,#12837d);color:#fff;transform:translateY(-1px)}
+@media(max-width:700px){.plan-editor-interactive .budget-input{min-width:0;width:100%}}
