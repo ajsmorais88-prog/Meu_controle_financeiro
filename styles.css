@@ -286,3 +286,19 @@ dialog{border:1px solid #dce7ed}
 .mypluggy-account-detail span,.mypluggy-linked-item-legacy{color:#75867d;font-size:10px;line-height:1.5;overflow-wrap:anywhere}
 #myPluggyLinkedItems.mypluggy-linked-item-list[hidden]{display:none}
 @media(max-width:620px){.mypluggy-linked-item-heading{flex-direction:column}.mypluggy-linked-item-heading code{max-width:100%;text-align:left}.mypluggy-account-details{grid-template-columns:1fr}}
+
+/* Pluggy investment positions in the Investments tab */
+.pluggy-investments-panel{margin-bottom:16px}
+.pluggy-investments-total{display:grid;justify-items:end;gap:3px;color:#75867d;font-size:10px}
+.pluggy-investments-total strong{color:#173a32;font-size:18px}
+.pluggy-investment-updated{display:block;margin:0 0 8px;color:#82918a;font-size:10px}
+.pluggy-investment-position-list{display:grid;gap:0}
+.pluggy-investment-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:14px;padding:12px 0;border-top:1px solid #edf1ee}
+.pluggy-investment-info{display:grid;gap:4px;min-width:0}
+.pluggy-investment-info strong{color:#263f33;font-size:13px;overflow-wrap:anywhere}
+.pluggy-investment-info span,.pluggy-investment-info small{color:#7d8982;font-size:10px;line-height:1.45;overflow-wrap:anywhere}
+.pluggy-investment-values{display:grid;justify-items:end;gap:4px}
+.pluggy-investment-values strong{color:#173a32;font-size:14px;white-space:nowrap}
+.pluggy-investment-values small{color:#82918a;font-size:10px;white-space:nowrap}
+.pluggy-investment-empty{margin-top:10px}
+@media(max-width:560px){.pluggy-investment-row{grid-template-columns:1fr;gap:8px}.pluggy-investment-values{justify-items:start}}
