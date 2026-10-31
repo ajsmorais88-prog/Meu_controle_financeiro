@@ -197,7 +197,7 @@
     document.querySelectorAll('.allocation-percent').forEach((node,index)=>node.textContent=`${[allocation.fixed,allocation.card,allocation.investment][index]}%`);
     $('#fixedAllowanceLabel').textContent=`Limite mensal · ${allocation.fixed}% da renda`;$('#investmentTargetLabel').textContent=`Meta mensal · ${allocation.investment}% da renda`;
     $('#allocationPlanLabel').textContent='PLANEJAMENTO · MONITORAMENTO AUTOMÁTICO';
-    $('#allocationSettingsCurrent').textContent=`Fixos ${allocation.fixed}% · Cartão ${allocation.card}% · Investimento ${allocation.investment}%`;
+    $('#allocationSettingsCurrent').textContent=`Custos Fixos ${allocation.fixed}% · Gastos com Cartão ${allocation.card}% · Investimento ${allocation.investment}%`;
     const currentMonth=monthKey(today);
     const planningMonth=isMonth?monthKey(monthStart):currentMonth;
     const planningMonthDate=new Date(Number(planningMonth.slice(0,4)),Number(planningMonth.slice(5,7))-1,1);
