@@ -1470,7 +1470,10 @@ async function exchangeJson(url, options, exchangeName) {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     const code = payload.code || payload.retCode || payload.error || payload.message || '';
-    throw Object.assign(new Error('A ' + exchangeName + ' recusou a consulta (HTTP ' + response.status + (code ? ', código ' + String(code).slice(0, 80) : '') + '). Confira a chave, o segredo, as permissões somente leitura e a restrição de IP.'), { status: response.status >= 400 && response.status < 600 ? response.status : 502 });
+    const detail = response.status === 401
+      ? 'A corretora rejeitou a autenticação. Confira se a chave e o segredo pertencem ao mesmo cadastro, se a chave está ativa, se permite leitura de saldos e se o IP de saída da hospedagem está autorizado.'
+      : 'Confira a chave, o segredo, as permissões somente leitura e a restrição de IP.';
+    throw Object.assign(new Error('A ' + exchangeName + ' recusou a consulta (HTTP ' + response.status + (code ? ', código ' + String(code).slice(0, 80) : '') + '). ' + detail), { status: response.status === 401 ? 502 : (response.status >= 400 && response.status < 600 ? response.status : 502) });
   }
   return payload;
 }
@@ -1620,6 +1623,7 @@ async function signedBinanceAccount(apiKey, apiSecret) {
     if (code === -2015) explanation = 'A Binance não aceitou a chave, o IP de saída ou as permissões desta API. Confira se a chave pertence à conta correta, permite leitura e autoriza o IP público atual.';
     else if (code === -1022) explanation = 'A assinatura foi recusada. Confira se o segredo pertence a esta chave e se foi copiado corretamente, sem espaços.';
     else if (code === -1021) explanation = 'O horário do computador está fora da janela aceita pela Binance. Sincronize a data e a hora e tente novamente.';
+    else if (response.status === 401) explanation = 'A Binance rejeitou a autenticação. Confira se API Key e Secret pertencem ao mesmo cadastro, se a chave está ativa, se tem permissão de leitura dos dados da conta e se o IP de saída da hospedagem está autorizado na chave.';
     else if (response.status === 451) explanation = 'A API da Binance informou indisponibilidade regional (HTTP 451). Confira a disponibilidade da Binance para sua região.';
     else if (response.status === 429 || response.status === 418) explanation = `A Binance limitou as consultas (HTTP ${response.status}). Aguarde antes de tentar novamente${apiMessage ? `: ${apiMessage}` : '.'}`;
     const error = new Error(`Consulta Binance recusada (HTTP ${response.status}${code !== null ? `, código ${code}` : ''}). ${explanation}`);
