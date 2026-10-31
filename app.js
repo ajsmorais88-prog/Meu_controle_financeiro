@@ -135,8 +135,11 @@
   function cardInstallmentAmount(transaction,index){const cents=Math.round((Number(transaction.amount)||0)*100);if(transaction.statementBatchId)return cents/100;const count=Math.min(120,Math.max(1,Number(transaction.installments)||1));const base=Math.floor(cents/count),extra=cents%count;return(base+(index<=extra?1:0))/100;}
   function isCardInvoicePayment(transaction){
     if(!transaction||transaction.type!=='income')return false;
-    const text=[transaction.description,transaction.descriptionRaw,transaction.category].filter(Boolean).join(' ').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').toLocaleUpperCase('pt-BR');
-    return /\\b(PAGAMENTO|PAGTO|PGTO|PAG)\\b.*\\b(FATURA|CARTAO|CREDITO)\\b|\\b(FATURA|CARTAO|CREDITO)\\b.*\\b(PAGAMENTO|PAGTO|PGTO|PAG)\\b/.test(text);
+    const normalize=value=>String(value||'').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').toLocaleUpperCase('pt-BR');
+    const operationType=normalize(transaction.operationType).replace(/[^A-Z0-9]+/g,'_');
+    if(/PAGAMENTO(?:_FATURA)?|PAYMENT(?:_INVOICE)?/.test(operationType))return true;
+    const text=normalize([transaction.description,transaction.descriptionRaw,transaction.category].filter(Boolean).join(' '));
+    return /\\b(PAGAMENTO|PAGTO|PGTO|PAG)\\b.*\\b(FATURA|CARTAO|CREDITO|RECEBIDO)\\b|\\b(FATURA|CARTAO|CREDITO)\\b.*\\b(PAGAMENTO|PAGTO|PGTO|PAG)\\b/.test(text);
   }
   function cardPaymentSchedule(transaction,card){
     const count=Math.min(120,Math.max(1,Number(transaction.installments)||1));
