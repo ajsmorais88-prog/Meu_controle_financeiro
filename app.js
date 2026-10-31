@@ -7,6 +7,7 @@
     CARD_KEY: 'meu-controle-financeiro-cards-v1',
     FIXED_KEY: 'meu-controle-financeiro-fixed-costs-v1',
     INVESTMENT_KEY: 'meu-controle-financeiro-investments-v1',
+    PLUGGY_INVESTMENTS_KEY: 'meu-controle-financeiro-pluggy-investments-v1',
     BINANCE_BALANCES_KEY: 'meu-controle-financeiro-binance-balances-v1',
     BANK_BALANCE_KEY: 'meu-controle-financeiro-bank-balance-overrides-v1',
     BANK_ACCOUNTS_KEY: 'meu-controle-financeiro-bank-accounts-v1',
@@ -82,6 +83,7 @@
   const CARD_KEY = scopedKey(baseKeys.CARD_KEY);
   const FIXED_KEY = scopedKey(baseKeys.FIXED_KEY);
   const INVESTMENT_KEY = scopedKey(baseKeys.INVESTMENT_KEY);
+  const PLUGGY_INVESTMENTS_KEY = scopedKey(baseKeys.PLUGGY_INVESTMENTS_KEY);
   const BINANCE_BALANCES_KEY = scopedKey(baseKeys.BINANCE_BALANCES_KEY);
   const BANK_BALANCE_KEY = scopedKey(baseKeys.BANK_BALANCE_KEY);
   const BANK_ACCOUNTS_KEY = scopedKey(baseKeys.BANK_ACCOUNTS_KEY);
@@ -111,6 +113,7 @@
   let cards = (() => { try { const data=JSON.parse(localStorage.getItem(CARD_KEY)||'[]'); return Array.isArray(data)?data:[]; } catch { return []; } })();
   let fixedCosts = (() => { try { const data=JSON.parse(localStorage.getItem(FIXED_KEY)||'[]'); return Array.isArray(data)?data:[]; } catch { return []; } })();
   let investments = (() => { try { const data=JSON.parse(localStorage.getItem(INVESTMENT_KEY)||'[]'); return Array.isArray(data)?data:[]; } catch { return []; } })();
+  let syncedPluggyInvestments = (() => { try { const data=JSON.parse(localStorage.getItem(PLUGGY_INVESTMENTS_KEY)||'[]'); return Array.isArray(data)?data:[]; } catch { return []; } })();
   let syncedBinance = (() => { try { const data=JSON.parse(localStorage.getItem(BINANCE_BALANCES_KEY)||'null'); return data&&Array.isArray(data.balances)?data:null; } catch { return null; } })();
   let bankBalanceOverrides = (() => { try { const data=JSON.parse(localStorage.getItem(BANK_BALANCE_KEY)||'{}'); return data&&typeof data==='object'&&!Array.isArray(data)?data:{}; } catch { return {}; } })();
   let monthlyIncome = Number(localStorage.getItem(INCOME_KEY) || 0);
@@ -535,8 +538,32 @@
     if(maxTotal===0){empty.hidden=false;empty.textContent='Nenhuma compra ou parcela prevista para os próximos 6 meses.';return;}
     for(const item of totals){const column=document.createElement('div');column.className='card-projection-column';const total=document.createElement('strong');total.className='card-projection-total';total.textContent=money(item.total);const track=document.createElement('div');track.className='card-projection-track';const bar=document.createElement('div');bar.className='card-projection-bar';bar.style.height=`${item.total?Math.max(2,item.total/maxTotal*100):0}%`;for(const series of cardSeries){const amount=item.cardTotals.get(String(series.card.id))||0;if(amount<=0)continue;const segment=document.createElement('span');segment.className='card-projection-segment';segment.style.height=`${amount/item.total*100}%`;segment.style.backgroundColor=series.color;segment.title=`${series.card.name}: ${money(amount)}`;segment.setAttribute('aria-label',`${series.card.name}: ${money(amount)}`);bar.append(segment);}track.append(bar);const label=document.createElement('span');label.className='card-projection-month';label.textContent=new Intl.DateTimeFormat('pt-BR',{month:'short',year:'numeric'}).format(item.date).replace('.','');column.append(total,track,label);chart.append(column);}
   }
-  function getAccumulatedInvestmentBalance(){const syncedCryptoInvested=getCryptoPositions().filter(item=>item.synced&&!item.manualCount).reduce((sum,item)=>sum+Number(item.amount||0),0);return investments.reduce((sum,item)=>sum+((item.movement||'contribution')==='withdrawal'?-1:1)*Number(item.amount||0),0)+syncedCryptoInvested;}
+  function getAccumulatedInvestmentBalance(){const syncedCryptoInvested=getCryptoPositions().filter(item=>item.synced&&!item.manualCount).reduce((sum,item)=>sum+Number(item.amount||0),0);const syncedPluggyBalance=syncedPluggyInvestments.reduce((sum,item)=>sum+Number(item.balance||0),0);return investments.reduce((sum,item)=>sum+((item.movement||'contribution')==='withdrawal'?-1:1)*Number(item.amount||0),0)+syncedCryptoInvested+syncedPluggyBalance;}
+  function renderPluggyInvestmentPositions(){
+    const container=$('#pluggyInvestmentPositions');if(!container)return;container.replaceChildren();
+    const total=syncedPluggyInvestments.reduce((sum,item)=>sum+Number(item.balance||0),0);
+    $('#pluggyInvestmentBalance').textContent=money(total);
+    const latest=syncedPluggyInvestments.map(item=>item.syncedAt).filter(Boolean).sort().at(-1);
+    $('#pluggyInvestmentUpdated').textContent=latest?'Sincronizado em '+new Intl.DateTimeFormat('pt-BR',{dateStyle:'short',timeStyle:'short'}).format(new Date(latest)):'Posições da sincronização MeuPluggy';
+    const empty=$('#pluggyInvestmentEmpty');empty.hidden=syncedPluggyInvestments.length>0;
+    for(const position of syncedPluggyInvestments){
+      const row=document.createElement('div');row.className='pluggy-investment-row';
+      const info=document.createElement('div');info.className='pluggy-investment-info';
+      const name=document.createElement('strong');name.textContent=String(position.name||'Investimento');
+      const typeNames={EQUITY:'Ação',ETF:'ETF',FIXED_INCOME:'Renda fixa',MUTUAL_FUND:'Fundo de investimento',COE:'COE',SECURITY:'Título',OTHER:'Outro'};
+      const type=typeNames[String(position.type||'').toUpperCase()]||String(position.type||'Investimento').replaceAll('_',' ');
+      const details=[position.institutionName,type,position.subtype?String(position.subtype).replaceAll('_',' ').toLocaleLowerCase('pt-BR'):'',position.code||''].filter(Boolean).join(' · ');
+      const meta=document.createElement('span');meta.textContent=details;
+      info.append(name,meta);
+      if(Number(position.quantity)>0){const qty=document.createElement('small');qty.textContent='Quantidade: '+Number(position.quantity).toLocaleString('pt-BR',{maximumFractionDigits:8});info.append(qty);}
+      const amounts=document.createElement('div');amounts.className='pluggy-investment-values';
+      const current=document.createElement('strong');current.textContent=money(position.balance);
+      const original=document.createElement('small');original.textContent=Number(position.amountOriginal)>0?'Investido: '+money(position.amountOriginal):'Investido não informado';
+      amounts.append(current,original);row.append(info,amounts);container.append(row);
+    }
+  }
   function renderInvestments(){
+    renderPluggyInvestmentPositions();
     const selectedMonth=$('#investmentMonthFilter').value||monthKey(today);const monthItems=investments.filter(item=>String(item.date).slice(0,7)===selectedMonth).sort((a,b)=>b.date.localeCompare(a.date));const monthly=monthItems.filter(item=>(item.movement||'contribution')==='contribution').reduce((sum,item)=>sum+Number(item.amount||0),0);const accumulated=getAccumulatedInvestmentBalance();const target=monthlyIncome*allocation.investment/100;const pct=target?Math.round(monthly/target*100):0;$('#investmentIntroCopy').textContent=`Registre aportes e resgates e acompanhe a meta mensal de ${allocation.investment}% da renda.`;
     $('#investmentTargetValue').textContent=money(target);$('#investmentMonthValue').textContent=money(monthly);$('#investmentTotalValue').textContent=money(accumulated);$('#investmentProgressText').textContent=target<=0?'Informe sua renda na Visão geral':monthly>=target?`Meta mensal atingida (${pct}%)`:`${pct}% da meta mensal`;
     $('#investmentProgress').style.width=`${Math.min(pct,100)}%`;$('#investmentProgress').classList.toggle('over',target>0&&monthly>target);$('#investmentProgressTrack')?.setAttribute('aria-valuenow',String(Math.min(pct,100)));
@@ -628,7 +655,7 @@
   function getInvestmentHoldings(excludeId=null){const holdings=new Map();for(const item of investments){if(String(item.id)===String(excludeId)||item.kind==='Criptoativos')continue;const key=JSON.stringify([item.kind,item.name]);const position=holdings.get(key)||{key,kind:item.kind,name:item.name,balance:0};position.balance+=((item.movement||'contribution')==='withdrawal'?-1:1)*Number(item.amount||0);holdings.set(key,position);}return [...holdings.values()].filter(item=>item.balance>0.005).sort((a,b)=>a.name.localeCompare(b.name));}
   async function renderInvestmentAllocation(){
     const generation=++investmentAllocationGeneration;const content=$('#investmentAllocationContent');const legend=$('#investmentAllocationLegend');const chart=$('#investmentAllocationChart');const empty=$('#investmentAllocationEmpty');
-    const positions=getInvestmentHoldings().map(item=>({name:item.name,kind:item.kind,value:item.balance}));const cryptoCost=new Map();for(const item of investments){if(item.kind!=='Criptoativos')continue;const symbol=canonicalCryptoSymbol(item.symbol);if(!symbol)continue;const sign=(item.movement||'contribution')==='withdrawal'?-1:1;cryptoCost.set(symbol,(cryptoCost.get(symbol)||0)+sign*Number(item.amount||0));}
+    const positions=getInvestmentHoldings().map(item=>({name:item.name,kind:item.kind,value:item.balance}));for(const item of syncedPluggyInvestments){const typeLabel=String(item.type||'Investimento').replaceAll('_',' ').toLocaleLowerCase('pt-BR');if(Number(item.balance)>0.005)positions.push({name:String(item.name||item.code||'Investimento'),kind:'Pluggy · '+String(item.institutionName||'posição sincronizada')+' · '+typeLabel,value:Number(item.balance)});}const cryptoCost=new Map();for(const item of investments){if(item.kind!=='Criptoativos')continue;const symbol=canonicalCryptoSymbol(item.symbol);if(!symbol)continue;const sign=(item.movement||'contribution')==='withdrawal'?-1:1;cryptoCost.set(symbol,(cryptoCost.get(symbol)||0)+sign*Number(item.amount||0));}
     const cryptoPositions=getCryptoPositions();const quotes=await Promise.all(cryptoPositions.map(async position=>{try{const quote=await getCryptoPriceBRL(position.symbol);return{position,value:Number(position.quantity)*quote.price,quoted:true};}catch{return{position,value:cryptoCost.get(position.symbol)||0,quoted:false};}}));
     if(generation!==investmentAllocationGeneration)return;for(const item of quotes){if(item.value>0.005)positions.push({name:item.position.symbol,kind:item.quoted?'Criptoativos · cotação atual':'Criptoativos · último valor investido',value:item.value});}
     const total=positions.reduce((sum,item)=>sum+item.value,0);legend.replaceChildren();if(total<=0){content.hidden=true;empty.hidden=false;return;}content.hidden=false;empty.hidden=true;$('#investmentAllocationTotal').textContent=money(total);
@@ -764,6 +791,13 @@
       if(!response.ok)throw new Error(data.error||'Não foi possível sincronizar MeuPluggy.');
       const importedAccounts=[];
       const importedCards=Array.isArray(data.cards)?data.cards:[];
+      const importedPluggyInvestments=Array.isArray(data.investments)?data.investments:[];
+      const failedItemIds=new Set((Array.isArray(data.failedItems)?data.failedItems:[]).map(item=>String(item.itemId||'')));
+      syncedPluggyInvestments=[
+        ...syncedPluggyInvestments.filter(item=>failedItemIds.has(String(item.itemId||''))),
+        ...importedPluggyInvestments
+      ];
+      localStorage.setItem(PLUGGY_INVESTMENTS_KEY,JSON.stringify(syncedPluggyInvestments));
       const importedCardAccountIds=new Set(importedCards.map(card=>String(card.pluggyAccountId||'')).filter(Boolean));
       bankAccounts=bankAccounts.filter(item=>!(item.source==='MeuPluggy'&&importedCardAccountIds.has(String(item.pluggyAccountId||'').replace(/^pluggy-/,''))));
       transactions=transactions.filter(item=>!(importedCardAccountIds.has(String(item.accountId||''))&&String(item.externalId||'').startsWith('mypluggy:')&&!item.cardId));
