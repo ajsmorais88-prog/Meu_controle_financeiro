@@ -22,7 +22,7 @@ const CLIENT_DATA_KEYS = new Set([
   'meu-controle-financeiro-transactions-v1', 'meu-controle-financeiro-monthly-income-v1',
   'meu-controle-financeiro-allocation-percentages-v1',
   'meu-controle-financeiro-cards-v1', 'meu-controle-financeiro-fixed-costs-v1',
-  'meu-controle-financeiro-investments-v1', 'meu-controle-financeiro-binance-balances-v1',
+  'meu-controle-financeiro-investments-v1', 'meu-controle-financeiro-pluggy-investments-v1', 'meu-controle-financeiro-binance-balances-v1',
   'meu-controle-financeiro-bank-balance-overrides-v1', 'meu-controle-financeiro-bank-accounts-v1',
   'meu-controle-financeiro-bank-excluded-v1', 'meu-controle-financeiro-notifications-v1'
 ]);
@@ -860,6 +860,17 @@ async function listPluggyTransactions(accountId) {
   return all;
 }
 
+async function listPluggyInvestments(itemId) {
+  const investments = [];
+  for (let page = 1; page <= 20; page++) {
+    const data = await pluggyRequest(`/investments?itemId=${encodeURIComponent(itemId)}&page=${page}&pageSize=500`);
+    investments.push(...(Array.isArray(data.results) ? data.results : []));
+    const totalPages = Number(data.totalPages) || 1;
+    if (page >= totalPages || !data.results?.length) break;
+  }
+  return investments;
+}
+
 async function listPluggyBills(accountId) {
   const bills = [];
   for (let page = 1; page <= 12; page++) {
@@ -928,8 +939,31 @@ async function syncMeuPluggyIntoUserData(userId) {
         error.status = 409;
         throw error;
       }
-      const accountData = await pluggyRequest(`/accounts?itemId=${encodeURIComponent(savedItem.itemId)}`);
+      const [accountData, itemInvestments] = await Promise.all([
+        pluggyRequest(`/accounts?itemId=${encodeURIComponent(savedItem.itemId)}`),
+        listPluggyInvestments(savedItem.itemId).catch(() => [])
+      ]);
       const accounts = Array.isArray(accountData.results) ? accountData.results : Array.isArray(accountData) ? accountData : [];
+      const institutionName = accounts.find(account => String(account.subtype || '').toUpperCase() !== 'CREDIT_CARD' && !account.creditData)?.name || accounts[0]?.name || 'MeuPluggy';
+      const investments = itemInvestments.map(position => ({
+        id: `pluggy-investment-${savedItem.itemId}-${position.id}`,
+        itemId: String(savedItem.itemId),
+        externalId: String(position.id || ''),
+        name: String(position.name || position.code || 'Investimento').slice(0, 120),
+        institutionName: String(position.institutionName || institutionName).slice(0, 100),
+        code: String(position.code || '').slice(0, 60),
+        type: String(position.type || 'OTHER'),
+        subtype: String(position.subtype || ''),
+        balance: Number(position.balance ?? position.amount ?? 0),
+        amountOriginal: Number(position.amountOriginal ?? position.amount ?? 0),
+        quantity: Number(position.quantity || 0),
+        value: Number(position.value || 0),
+        currencyCode: String(position.currencyCode || 'BRL'),
+        date: String(position.date || '').slice(0, 10),
+        status: String(position.status || 'ACTIVE'),
+        syncedAt: new Date().toISOString(),
+        source: 'MeuPluggy'
+      })).filter(position => Number.isFinite(position.balance) && position.balance > 0.005);
       const transactionsByAccount = await Promise.all(accounts.map(async account => {
         const isCard = String(account.subtype || '').toUpperCase() === 'CREDIT_CARD' || Boolean(account.creditData);
         const [transactions, bills] = await Promise.all([
@@ -1049,7 +1083,7 @@ async function syncMeuPluggyIntoUserData(userId) {
           });
         }
       }
-      return { ok: true, savedItem, accounts: bankAccounts, cards, transactions };
+      return { ok: true, savedItem, accounts: bankAccounts, cards, transactions, investments };
     } catch (error) {
       return { ok: false, savedItem, error };
     }
@@ -1098,6 +1132,7 @@ async function syncMeuPluggyIntoUserData(userId) {
   const excludedSet = new Set(excludedBankAccountIds.map(String));
   const accounts = successful.flatMap(result => result.accounts).filter(account => !excludedSet.has(String(account.pluggyAccountId)));
   const cards = successful.flatMap(result => result.cards);
+  const investments = successful.flatMap(result => result.investments || []);
   const transactions = successful.flatMap(result => result.transactions).filter(transaction => !excludedSet.has(String(transaction.accountId)));
   const creditAccountIds = new Set(cards.map(card => String(card.pluggyAccountId)));
   const existingTransactions = await storedArray(userId, MYPLUGGY_TRANSACTIONS_KEY);
@@ -1140,7 +1175,7 @@ async function syncMeuPluggyIntoUserData(userId) {
   return {
     accountCount: accounts.length, cardCount: cards.length, itemCount: successful.length, failedItems, added, updated, syncedAt,
     accounts: accounts.map(account => ({ id: String(account.pluggyAccountId), name: String(account.name.replace(/ · MeuPluggy$/, '')), bankName: String(account.bankName || account.name.replace(/ · MeuPluggy$/, '')), accountNumber: String(account.accountNumber || ''), accountType: String(account.accountType || account.subtype || account.type || ''), type: String(account.accountType || account.subtype || account.type || ''), balance: Number(account.balance) || 0, currencyCode: String(account.currencyCode || 'BRL') })),
-    cards, transactions
+    cards, transactions, investments
   };
 }
 
@@ -2289,6 +2324,7 @@ async function main() {
                 accounts: result.accounts,
                 cards: result.cards,
                 transactions: result.transactions,
+                investments: result.investments,
                 itemCount: result.itemCount,
                 cardCount: result.cardCount,
                 failedItems: result.failedItems
