@@ -1064,7 +1064,31 @@ async function syncMeuPluggyIntoUserData(userId) {
   const syncedItems = new Map(successful.map(result => [String(result.savedItem.itemId), result]));
   const refreshedItems = linkedItems.map(savedItem => {
     const result = syncedItems.get(String(savedItem.itemId));
-    return result ? { ...savedItem, connectorName: 'MeuPluggy', syncedAt, accountNames: [...result.accounts, ...result.cards].map(account => String(account.name || 'Conta')).slice(0, 30) } : savedItem;
+    if (!result) return savedItem;
+    const institutionName = result.accounts.map(account => String(account.bankName || '').trim()).find(Boolean)
+      || result.cards.map(card => String(card.name || '').replace(/\s*·\s*\d{4}$/, '').trim()).find(Boolean)
+      || 'Instituição conectada';
+    const accountDetails = [
+      ...result.accounts.map(account => ({
+        institutionName: String(account.bankName || account.name || institutionName).replace(/\s*·\s*MeuPluggy$/i, '').trim(),
+        accountName: String(account.name || account.bankName || 'Conta').replace(/\s*·\s*MeuPluggy$/i, '').trim(),
+        accountType: String(account.accountType || account.type || ''),
+        lastFour: String(account.accountNumber || '').replace(/\D/g, '').slice(-4)
+      })),
+      ...result.cards.map(card => ({
+        institutionName,
+        accountName: String(card.name || 'Cartão').replace(/\s*·\s*\d{4}$/, '').trim(),
+        accountType: 'CREDIT_CARD',
+        lastFour: String(card.lastFour || '').replace(/\D/g, '').slice(-4)
+      }))
+    ];
+    return {
+      ...savedItem,
+      connectorName: 'MeuPluggy',
+      syncedAt,
+      accountNames: accountDetails.map(account => account.accountName).slice(0, 30),
+      accountDetails: accountDetails.slice(0, 30)
+    };
   });
   await writeMeuPluggyItems(userId, refreshedItems);
 
@@ -2205,7 +2229,7 @@ async function main() {
               configured: Boolean(process.env.PLUGGY_CLIENT_ID && process.env.PLUGGY_CLIENT_SECRET),
               connected,
               connectorName: connected ? 'MeuPluggy' : '',
-              items: items.map(item => ({ itemId: item.itemId, accountNames: Array.isArray(item.accountNames) ? item.accountNames : [], connectedAt: item.connectedAt || null, syncedAt: item.syncedAt || null })),
+              items: items.map(item => ({ itemId: item.itemId, accountNames: Array.isArray(item.accountNames) ? item.accountNames : [], accountDetails: Array.isArray(item.accountDetails) ? item.accountDetails : [], connectedAt: item.connectedAt || null, syncedAt: item.syncedAt || null })),
               message: connected ? `${items.length} conexão(ões) MeuPluggy vinculada(s). Você pode adicionar outras.` : 'Vincule um ou mais ItemIds MeuPluggy desta conta administradora.'
             });
             return;
