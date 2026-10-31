@@ -138,8 +138,9 @@
     const normalize=value=>Array.from(String(value||'').normalize('NFD')).filter(char=>{const code=char.codePointAt(0);return code<768||code>879;}).join('').toLocaleUpperCase('pt-BR');
     const operationType=normalize(transaction.operationType);
     if(operationType.includes('PAGAMENTO')||operationType.includes('PAYMENT'))return true;
+    if(transaction.type!=='income')return false;
     const text=normalize([transaction.description,transaction.descriptionRaw,transaction.category].filter(Boolean).join(' '));
-    return ['PAGAMENTO RECEBIDO','PAYMENT RECEIVED','CREDIT CARD PAYMENT','PAGAMENTO DE FATURA','PAGAMENTO DA FATURA','PAGAMENTO FATURA','PAGAMENTO DO CARTAO','PAGAMENTO CARTAO','PAGTO FATURA','PGTO FATURA'].some(phrase=>text.includes(phrase));
+    return text.includes('PAGAMENTO')||text.includes('PAGTO')||text.includes('PGTO')||text.includes('PAYMENT RECEIVED')||text.includes('CREDIT CARD PAYMENT');
   }
   function cardPaymentSchedule(transaction,card){
     const count=Math.min(120,Math.max(1,Number(transaction.installments)||1));
