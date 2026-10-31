@@ -147,7 +147,7 @@
       }
       return schedule;
     }
-    const referenceDate=String(transaction.purchaseDate||transaction.date).slice(0,10);
+    const referenceDate=String(transaction.date).slice(0,10);
     const [year,month,day]=referenceDate.split('-').map(Number);
     const firstMonth=new Date(year,month-1+(day>cardClosingDay(card)?1:0),1);
     return Array.from({length:count},(_,index)=>{
